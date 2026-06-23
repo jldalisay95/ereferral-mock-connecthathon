@@ -1,5 +1,6 @@
 import {
   PSGC_SYSTEM,
+  PSGC_VALUE_SET_IDS,
   PSGC_VALUE_SETS,
   PSGC_VERSION
 } from "../config/fhir";
@@ -20,7 +21,35 @@ export interface PsgcDirectory {
 const expansionCache = new Map<string, Promise<PsgcOption[]>>();
 let snapshotPromise: Promise<Record<string, PsgcOption[]>> | null = null;
 
-function expandUrl(baseUrl: string, canonical: string, count: number) {
+interface ExpansionResponse {
+  resourceType?: string;
+  version?: string;
+  expansion?: {
+    contains?: Array<{
+      system?: string;
+      version?: string;
+      code?: string;
+      display?: string;
+    }>;
+  };
+}
+
+function valueSetExpandUrl(baseUrl: string, valueSetId: string, count: number) {
+  const params = new URLSearchParams({ count: String(count) });
+  return `${baseUrl.replace(/\/$/, "")}/ValueSet/${valueSetId}/$expand?${params}`;
+}
+
+export function codeSystemLookupUrl(baseUrl: string, system = PSGC_SYSTEM) {
+  const params = new URLSearchParams({ url: system });
+  return `${baseUrl.replace(/\/$/, "")}/CodeSystem?${params}`;
+}
+
+export function valueSetLookupUrl(baseUrl: string, canonical: string) {
+  const params = new URLSearchParams({ url: canonical });
+  return `${baseUrl.replace(/\/$/, "")}/ValueSet?${params}`;
+}
+
+function canonicalExpandUrl(baseUrl: string, canonical: string, count: number) {
   const params = new URLSearchParams({
     url: canonical,
     count: String(count)
@@ -28,53 +57,54 @@ function expandUrl(baseUrl: string, canonical: string, count: number) {
   return `${baseUrl.replace(/\/$/, "")}/ValueSet/$expand?${params}`;
 }
 
+async function fetchExpansion(url: string, signal?: AbortSignal) {
+  const response = await fetch(url, {
+    headers: { Accept: "application/fhir+json" },
+    signal: signal ?? AbortSignal.timeout(90_000)
+  });
+  const body = (await response.json().catch(() => null)) as
+    | ExpansionResponse
+    | null;
+  if (!response.ok) {
+    throw new Error(
+      `PSGC expansion failed (${response.status})${
+        body?.resourceType === "OperationOutcome" ? " with OperationOutcome" : ""
+      }`
+    );
+  }
+  const version = body?.version ?? PSGC_VERSION;
+  return (body?.expansion?.contains ?? []).flatMap((item) =>
+    item.code
+      ? [
+          {
+            system: item.system ?? PSGC_SYSTEM,
+            version: item.version ?? version,
+            code: item.code,
+            display: (item.display ?? item.code).trim()
+          }
+        ]
+      : []
+  );
+}
+
 async function loadExpansion(
   baseUrl: string,
+  valueSetId: string,
   canonical: string,
   count: number,
   signal?: AbortSignal
 ) {
-  const key = `${baseUrl}|${canonical}`;
+  const key = `${baseUrl}|${valueSetId}|${canonical}`;
   if (!expansionCache.has(key)) {
-    const request = fetch(expandUrl(baseUrl, canonical, count), {
-      headers: { Accept: "application/fhir+json" },
-      signal: signal ?? AbortSignal.timeout(90_000)
-    })
-      .then(async (response) => {
-        const body = (await response.json().catch(() => null)) as {
-          resourceType?: string;
-          version?: string;
-          expansion?: {
-            contains?: Array<{
-              system?: string;
-              version?: string;
-              code?: string;
-              display?: string;
-            }>;
-          };
-        } | null;
-        if (!response.ok) {
-          throw new Error(
-            `PSGC expansion failed (${response.status})${
-              body?.resourceType === "OperationOutcome"
-                ? " with OperationOutcome"
-                : ""
-            }`
-          );
+    const request = fetchExpansion(
+      canonicalExpandUrl(baseUrl, canonical, count),
+      signal
+    )
+      .catch((error) => {
+        if (error instanceof Error && error.name === "AbortError") {
+          throw error;
         }
-        const version = body?.version ?? PSGC_VERSION;
-        return (body?.expansion?.contains ?? []).flatMap((item) =>
-          item.code
-            ? [
-                {
-                  system: item.system ?? PSGC_SYSTEM,
-                  version: item.version ?? version,
-                  code: item.code,
-                  display: (item.display ?? item.code).trim()
-                }
-              ]
-            : []
-        );
+        return fetchExpansion(valueSetExpandUrl(baseUrl, valueSetId, count), signal);
       })
       .catch(async (error) => {
         if (error instanceof Error && error.name === "AbortError") {
@@ -139,15 +169,49 @@ export async function loadPsgcDirectory(
   signal?: AbortSignal
 ): Promise<PsgcDirectory> {
   const [regions, provinces, cities] = await Promise.all([
-    loadExpansion(baseUrl, PSGC_VALUE_SETS.regions, 100, signal),
-    loadExpansion(baseUrl, PSGC_VALUE_SETS.provinces, 200, signal),
-    loadExpansion(baseUrl, PSGC_VALUE_SETS.cities, 2_000, signal)
+    loadExpansion(
+      baseUrl,
+      PSGC_VALUE_SET_IDS.regions,
+      PSGC_VALUE_SETS.regions,
+      100,
+      signal
+    ),
+    loadExpansion(
+      baseUrl,
+      PSGC_VALUE_SET_IDS.provinces,
+      PSGC_VALUE_SETS.provinces,
+      200,
+      signal
+    ),
+    loadExpansion(
+      baseUrl,
+      PSGC_VALUE_SET_IDS.cities,
+      PSGC_VALUE_SETS.cities,
+      2_000,
+      signal
+    )
   ]);
   return { regions, provinces, cities };
 }
 
 export function loadPsgcBarangays(baseUrl: string, signal?: AbortSignal) {
-  return loadExpansion(baseUrl, PSGC_VALUE_SETS.barangays, 50_000, signal);
+  return loadExpansion(
+    baseUrl,
+    PSGC_VALUE_SET_IDS.barangays,
+    PSGC_VALUE_SETS.barangays,
+    50_000,
+    signal
+  );
+}
+
+export function loadAllPsgc(baseUrl: string, signal?: AbortSignal) {
+  return loadExpansion(
+    baseUrl,
+    PSGC_VALUE_SET_IDS.all,
+    PSGC_VALUE_SETS.all,
+    50_000,
+    signal
+  );
 }
 
 export function provincesForRegion(

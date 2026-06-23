@@ -38,13 +38,23 @@ export const IDENTIFIER_SYSTEMS = {
 } as const;
 
 export const PSGC_SYSTEM = "https://psa.gov.ph/classification/psgc";
+export const PSGC_CODE_SYSTEM_ID = "PSGC";
 export const PSGC_VERSION = "1Q-2026";
 
 export const PSGC_VALUE_SETS = {
-  regions: "https://fhir.doh.gov.ph/phcore/StructureDefinition/region",
-  provinces: "https://fhir.doh.gov.ph/phcore/StructureDefinition/province",
-  cities: "https://fhir.doh.gov.ph/phcore/StructureDefinition/city-municipality",
-  barangays: "https://fhir.doh.gov.ph/phcore/StructureDefinition/barangay"
+  regions: "https://fhir.doh.gov.ph/phcore/ValueSet/regions",
+  provinces: "https://fhir.doh.gov.ph/phcore/ValueSet/provinces",
+  cities: "https://fhir.doh.gov.ph/phcore/ValueSet/cities",
+  barangays: "https://fhir.doh.gov.ph/phcore/ValueSet/barangays",
+  all: "https://fhir.doh.gov.ph/phcore/ValueSet/psgc"
+} as const;
+
+export const PSGC_VALUE_SET_IDS = {
+  regions: "regions",
+  provinces: "provinces",
+  cities: "cities",
+  barangays: "barangays",
+  all: "psgc"
 } as const;
 
 export const REFERRAL_CATEGORY_OPTIONS = [
