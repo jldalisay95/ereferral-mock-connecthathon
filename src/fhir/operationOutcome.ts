@@ -1,0 +1,84 @@
+import type { FhirResource, ValidationIssue, ValidationSummary } from "../types";
+
+const emptyCounts = () => ({ fatal: 0, error: 0, warning: 0, information: 0 });
+
+function categorize(message: string, code?: string): ValidationIssue["category"] {
+  const text = `${code ?? ""} ${message}`.toLowerCase();
+  if (text.includes("code") || text.includes("value set") || text.includes("terminolog")) {
+    return "terminology";
+  }
+  if (text.includes("not supported") || text.includes("capability")) return "capability";
+  if (text.includes("best practice") || text.includes("recommended")) return "best-practice";
+  return "structural";
+}
+
+export function parseOperationOutcome(
+  resource: FhirResource | null | undefined,
+  httpStatus?: number
+): ValidationSummary {
+  const counts = emptyCounts();
+  if (!resource || resource.resourceType !== "OperationOutcome" || !Array.isArray(resource.issue)) {
+    return {
+      counts,
+      issues: [],
+      blocking: false,
+      validated: false,
+      httpStatus
+    };
+  }
+
+  const rawIssues = resource.issue
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
+    .map((item) => {
+      const severity =
+        item.severity === "fatal" ||
+        item.severity === "error" ||
+        item.severity === "warning" ||
+        item.severity === "information"
+          ? item.severity
+          : "information";
+      const details = item.details as { text?: string } | undefined;
+      const message =
+        (typeof item.diagnostics === "string" && item.diagnostics) ||
+        details?.text ||
+        "FHIR validation issue";
+      counts[severity] += 1;
+      return {
+        severity,
+        code: typeof item.code === "string" ? item.code : undefined,
+        message,
+        expression: Array.isArray(item.expression)
+          ? item.expression.filter((value): value is string => typeof value === "string")
+          : undefined,
+        category: categorize(message, typeof item.code === "string" ? item.code : undefined)
+      } satisfies ValidationIssue;
+    });
+
+  const grouped = new Map<string, ValidationIssue>();
+  for (const issue of rawIssues) {
+    const normalizedMessage = issue.message
+      .replace(
+        /^Details for urn:uuid:[a-f0-9-]+ matching against profile \S+ - /i,
+        ""
+      )
+      .replace(/urn:uuid:[a-f0-9-]+/gi, "urn:uuid:[resource]");
+    const key = `${issue.severity}|${issue.category}|${normalizedMessage}`;
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.occurrences = (existing.occurrences ?? 1) + 1;
+    } else {
+      grouped.set(key, { ...issue, message: normalizedMessage, occurrences: 1 });
+    }
+  }
+  const issues = [...grouped.values()];
+
+  return {
+    counts,
+    issues,
+    blocking: counts.fatal > 0 || counts.error > 0,
+    validated: true,
+    httpStatus
+  };
+}
+
+export const isValidationBlocking = (summary: ValidationSummary) => summary.blocking;
