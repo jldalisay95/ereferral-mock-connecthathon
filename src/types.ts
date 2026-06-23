@@ -96,19 +96,26 @@ export interface EndpointConfig {
   pherefBaseUrl: string;
   phCoreBaseUrl: string;
   terminologyBaseUrl: string;
+  demoMode: boolean;
 }
 
 export interface ValidationIssue {
   severity: "fatal" | "error" | "warning" | "information";
   code?: string;
   message: string;
+  diagnostics: string;
   expression?: string[];
+  location?: string[];
   category: "structural" | "terminology" | "capability" | "best-practice";
   occurrences?: number;
 }
 
 export interface ValidationSummary {
   counts: Record<ValidationIssue["severity"], number>;
+  fatalCount: number;
+  errorCount: number;
+  warningCount: number;
+  informationCount: number;
   issues: ValidationIssue[];
   blocking: boolean;
   validated: boolean;
@@ -146,3 +153,114 @@ export type TaskTransition =
   | "rejected"
   | "referred-onward"
   | "completed";
+
+export type FacilityRole =
+  | "referring_facility_user"
+  | "receiving_facility_user"
+  | "admin";
+
+export interface FacilityDefinition {
+  id: string;
+  name: string;
+  organization: OrganizationInput;
+  practitioner: PersonInput;
+  practitionerRoleId: string;
+}
+
+export interface FacilityAccount {
+  id: string;
+  username: string;
+  displayName: string;
+  role: FacilityRole;
+  organizationId: string;
+  organizationName: string;
+  practitionerRoleId?: string;
+}
+
+export interface AppSession {
+  userId: string;
+  loggedInAt: string;
+}
+
+export type ReferralStatus =
+  | "draft"
+  | "validated"
+  | "submitted"
+  | "requested"
+  | "received"
+  | "accepted"
+  | "rejected"
+  | "referred-onward"
+  | "in-progress"
+  | "completed"
+  | "cancelled"
+  | "error";
+
+export interface ReferralTimelineEvent {
+  id: string;
+  referralId: string;
+  status: ReferralStatus;
+  label: string;
+  note: string;
+  actorOrganizationId: string;
+  actorName: string;
+  timestamp: string;
+}
+
+export interface Notification {
+  id: string;
+  referralId: string;
+  receivingOrganizationId: string;
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: string;
+}
+
+export interface ReferralReferences {
+  patientReference?: string;
+  serviceRequestReference?: string;
+  taskReference?: string;
+  encounterReference?: string;
+}
+
+export interface ReferralRecord {
+  id: string;
+  localReferralId: string;
+  patientName: string;
+  referringOrganizationId: string;
+  referringOrganizationName: string;
+  receivingOrganizationId: string;
+  receivingOrganizationName: string;
+  reason: string;
+  status: ReferralStatus;
+  createdAt: string;
+  updatedAt: string;
+  submittedAt?: string;
+  validationSummary: ValidationSummary;
+  validationOutcome?: FhirResource;
+  transactionResponse?: FhirResource;
+  transactionResponseSummary?: SubmissionReceipt;
+  fhirBundle: FhirResource;
+  fhirResources: FhirResource[];
+  resourceReferences: ReferralReferences;
+  draft: ReferralDraft;
+  timeline: ReferralTimelineEvent[];
+  liveSubmission: boolean;
+  forwardedToOrganizationId?: string;
+  forwardedToOrganizationName?: string;
+  lastError?: string;
+}
+
+export interface AppSettings extends EndpointConfig {
+  version: 2;
+}
+
+export interface PersistedAppState {
+  version: 2;
+  session: AppSession | null;
+  settings: AppSettings;
+  activeDraftIds: Record<string, string>;
+  referrals: ReferralRecord[];
+  notifications: Notification[];
+}

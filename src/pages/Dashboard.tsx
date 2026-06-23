@@ -1,19 +1,23 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { ReferralTable } from "../components/ReferralTable";
 import { useAppContext } from "../context/useAppContext";
-import { checkMetadata, endpointList } from "../services/fhirClient";
-import { storage } from "../services/storage";
-import type { EndpointConfig } from "../types";
+import { getMetadata, endpointList } from "../services/fhirClient";
+import type { ReferralStatus } from "../types";
 
 type ConnectionState = Record<string, "checking" | "online" | "offline">;
 
 export function Dashboard() {
-  const { endpoints, setEndpoints, resetEndpoints } = useAppContext();
-  const [editable, setEditable] = useState(endpoints);
+  const {
+    currentAccount,
+    endpoints,
+    scopedReferrals,
+    scopedNotifications,
+    unreadNotificationCount,
+    markNotificationRead,
+    activeDraftRecord
+  } = useAppContext();
   const [connections, setConnections] = useState<ConnectionState>({});
-  const receipts = storage.loadReceipts();
-
-  useEffect(() => setEditable(endpoints), [endpoints]);
 
   async function checkConnections() {
     const list = endpointList(endpoints);
@@ -21,7 +25,7 @@ export function Dashboard() {
     const results = await Promise.all(
       list.map(async (item) => {
         try {
-          await checkMetadata(item.url);
+          await getMetadata(item.url);
           return [item.key, "online"] as const;
         } catch {
           return [item.key, "offline"] as const;
@@ -33,97 +37,130 @@ export function Dashboard() {
 
   useEffect(() => {
     void checkConnections();
-    // Endpoint changes intentionally trigger a new capability check.
+    // Endpoint changes intentionally trigger a capability refresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [endpoints]);
+  }, [endpoints.pherefBaseUrl, endpoints.phCoreBaseUrl, endpoints.terminologyBaseUrl]);
 
-  const updateEndpoint = (key: keyof EndpointConfig, value: string) =>
-    setEditable((current) => ({ ...current, [key]: value }));
+  if (!currentAccount) return null;
+  const count = (...statuses: ReferralStatus[]) =>
+    scopedReferrals.filter((referral) => statuses.includes(referral.status)).length;
+  const roleTitle =
+    currentAccount.role === "referring_facility_user"
+      ? "Referring facility dashboard"
+      : currentAccount.role === "receiving_facility_user"
+        ? "Receiving facility dashboard"
+        : "Connectathon administration dashboard";
 
   return (
     <div className="page-stack">
       <section className="hero card">
         <div>
-          <p className="eyebrow">Connectathon demonstration workspace</p>
-          <h2>Create, validate, submit, retrieve, and update a synthetic eReferral.</h2>
+          <p className="eyebrow">{roleTitle}</p>
+          <h2>{currentAccount.organizationName}</h2>
           <p>
-            This browser-only prototype follows the published PHeRef transaction Bundle and uses
-            configurable FHIR R4 endpoints.
+            {endpoints.demoMode
+              ? "Demo mode is on: validation and reads may use live servers, while submissions and workflow writes stay local."
+              : "Live mode is on: submissions and Task updates are sent to the configured PHeRef CDR."}
           </p>
         </div>
         <div className="quick-actions">
-          <Link className="button" to="/referrals/new">New referral</Link>
-          <Link className="button secondary" to="/referrals/search">Search referral</Link>
-          <Link className="button secondary" to="/terminology">Terminology check</Link>
+          {currentAccount.role === "referring_facility_user" ? (
+            <Link className="button" to="/referrals/new">
+              {activeDraftRecord ? "Continue referral" : "New referral"}
+            </Link>
+          ) : null}
+          {currentAccount.role !== "referring_facility_user" ? (
+            <Link className="button" to="/inbox">Open referral inbox</Link>
+          ) : null}
+          <Link className="button secondary" to="/referrals">Open tracker</Link>
         </div>
+      </section>
+
+      <section className="metric-grid">
+        {currentAccount.role === "referring_facility_user" ? (
+          <>
+            <Metric label="Sent" value={scopedReferrals.filter((item) => item.submittedAt).length} />
+            <Metric label="Draft" value={count("draft", "error")} />
+            <Metric label="Pending / active" value={count("submitted", "requested", "received", "in-progress")} />
+            <Metric label="Accepted" value={count("accepted")} />
+            <Metric label="Rejected" value={count("rejected", "referred-onward")} />
+            <Metric label="Completed" value={count("completed")} />
+          </>
+        ) : (
+          <>
+            <Metric label="New" value={count("requested")} accent />
+            <Metric label="Unread notifications" value={unreadNotificationCount} accent />
+            <Metric label="Received" value={count("received")} />
+            <Metric label="Accepted" value={count("accepted")} />
+            <Metric label="Rejected / forwarded" value={count("rejected", "referred-onward")} />
+            <Metric label="Completed" value={count("completed")} />
+          </>
+        )}
       </section>
 
       <section className="card">
         <div className="section-heading">
-          <div>
-            <p className="eyebrow">FHIR endpoints</p>
-            <h2>Connection status</h2>
+          <div><p className="eyebrow">Notifications</p><h2>Latest status updates</h2></div>
+          {currentAccount.role !== "referring_facility_user" ? <Link to="/inbox">View inbox</Link> : null}
+        </div>
+        {scopedNotifications.length ? (
+          <div className="notification-list">
+            {scopedNotifications.slice(0, 5).map((notification) => (
+              <article className={`notification ${notification.read ? "" : "unread"}`} key={notification.id}>
+                <div>
+                  <strong>{notification.title}</strong>
+                  <p>{notification.message}</p>
+                  <small>{new Date(notification.createdAt).toLocaleString()}</small>
+                </div>
+                {!notification.read ? (
+                  <button type="button" className="secondary compact" onClick={() => markNotificationRead(notification.id)}>
+                    Mark read
+                  </button>
+                ) : null}
+              </article>
+            ))}
           </div>
+        ) : <p>No notifications for this facility.</p>}
+      </section>
+
+      <section className="card">
+        <div className="section-heading">
+          <div><p className="eyebrow">Referral tracker</p><h2>Recently updated</h2></div>
+          <Link to="/referrals">View all</Link>
+        </div>
+        <ReferralTable referrals={[...scopedReferrals].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 5)} />
+      </section>
+
+      <section className="card">
+        <div className="section-heading">
+          <div><p className="eyebrow">FHIR endpoints</p><h2>Connection status</h2></div>
           <button type="button" className="secondary" onClick={checkConnections}>Check now</button>
         </div>
         <div className="status-grid">
           {endpointList(endpoints).map((item) => (
             <article key={item.key} className="status-card">
               <span className={`status-dot ${connections[item.key] ?? "checking"}`} />
-              <div>
-                <strong>{item.label}</strong>
-                <small>{item.url}</small>
-              </div>
+              <div><strong>{item.label}</strong><small>{item.url}</small></div>
               <span>{connections[item.key] ?? "checking"}</span>
             </article>
           ))}
         </div>
       </section>
-
-      <section className="card">
-        <p className="eyebrow">Local configuration</p>
-        <h2>Endpoint overrides</h2>
-        <div className="form-grid">
-          <label className="field">
-            <span>PHeRef CDR URL</span>
-            <input value={editable.pherefBaseUrl} onChange={(event) => updateEndpoint("pherefBaseUrl", event.target.value)} />
-          </label>
-          <label className="field">
-            <span>PH Core CDR URL</span>
-            <input value={editable.phCoreBaseUrl} onChange={(event) => updateEndpoint("phCoreBaseUrl", event.target.value)} />
-          </label>
-          <label className="field">
-            <span>Terminology server URL</span>
-            <input value={editable.terminologyBaseUrl} onChange={(event) => updateEndpoint("terminologyBaseUrl", event.target.value)} />
-          </label>
-        </div>
-        <div className="button-row">
-          <button type="button" onClick={() => setEndpoints(editable)}>Save endpoints</button>
-          <button type="button" className="secondary" onClick={resetEndpoints}>Reset defaults</button>
-        </div>
-      </section>
-
-      <section className="card">
-        <p className="eyebrow">Local receipts</p>
-        <h2>Recent synthetic submissions</h2>
-        {receipts.length ? (
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Referral</th><th>Patient</th><th>Submitted</th><th>Task</th></tr></thead>
-              <tbody>
-                {receipts.map((receipt) => (
-                  <tr key={receipt.id}>
-                    <td><code>{receipt.referralId}</code></td>
-                    <td>{receipt.patientName}</td>
-                    <td>{new Date(receipt.submittedAt).toLocaleString()}</td>
-                    <td><span className="status-badge">{receipt.taskStatus}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : <p>No transaction receipts are stored in this browser yet.</p>}
-      </section>
     </div>
+  );
+}
+
+interface MetricProps {
+  label: string;
+  value: number;
+  accent?: boolean;
+}
+
+function Metric({ label, value, accent = false }: MetricProps) {
+  return (
+    <article className={`metric-card ${accent ? "accent" : ""}`}>
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </article>
   );
 }

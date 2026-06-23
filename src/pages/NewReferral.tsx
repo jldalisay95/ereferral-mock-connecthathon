@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { FormField, SelectInput, TextInput } from "../components/FormField";
 import { useAppContext } from "../context/useAppContext";
@@ -6,16 +7,32 @@ import type { ReferralDraft } from "../types";
 type Section = keyof ReferralDraft;
 
 export function NewReferral() {
-  const { draft, setDraft, resetDraft } = useAppContext();
+  const {
+    draft,
+    setDraft,
+    resetDraft,
+    startNewReferral,
+    currentAccount,
+    facilities
+  } = useAppContext();
+
+  useEffect(() => {
+    if (!draft) startNewReferral();
+  }, [draft, startNewReferral]);
+
+  if (!draft || !currentAccount) {
+    return <section className="card"><p>Preparing a synthetic referral draft…</p></section>;
+  }
+  const currentDraft = draft;
 
   function updateSection<K extends Section>(section: K, value: ReferralDraft[K]) {
-    setDraft({ ...draft, [section]: value });
+    setDraft({ ...currentDraft, [section]: value });
   }
 
   const updatePatient = (key: keyof ReferralDraft["patient"], value: unknown) =>
-    updateSection("patient", { ...draft.patient, [key]: value } as ReferralDraft["patient"]);
+    updateSection("patient", { ...currentDraft.patient, [key]: value } as ReferralDraft["patient"]);
   const updateVitals = (key: keyof ReferralDraft["vitals"], value: string | number) =>
-    updateSection("vitals", { ...draft.vitals, [key]: value });
+    updateSection("vitals", { ...currentDraft.vitals, [key]: value });
 
   return (
     <div className="page-stack">
@@ -40,16 +57,52 @@ export function NewReferral() {
         person={draft.receivingPractitioner}
         onChange={(value) => updateSection("receivingPractitioner", value)}
       />
-      <OrganizationSection
-        title="Initiating facility"
-        organization={draft.initiatingFacility}
-        onChange={(value) => updateSection("initiatingFacility", value)}
-      />
-      <OrganizationSection
-        title="Receiving facility"
-        organization={draft.receivingFacility}
-        onChange={(value) => updateSection("receivingFacility", value)}
-      />
+      <section className="card">
+        <p className="eyebrow">Facility context</p>
+        <h2>Initiating facility</h2>
+        <div className="summary-grid">
+          <div><span>Facility</span><strong>{draft.initiatingFacility.name}</strong></div>
+          <div><span>NHFR code</span><strong>{draft.initiatingFacility.nhfrCode}</strong></div>
+          <div><span>HCPN</span><strong>{draft.initiatingFacility.hcpnName}</strong></div>
+          <div><span>Contact</span><strong>{draft.initiatingFacility.phone}</strong></div>
+        </div>
+        <p className="field-note">Auto-populated and locked from the logged-in facility account.</p>
+      </section>
+      <section className="card">
+        <p className="eyebrow">Destination</p>
+        <h2>Receiving facility</h2>
+        <FormField label="Select receiving facility">
+          <SelectInput
+            value={
+              facilities.find(
+                (facility) =>
+                  facility.organization.nhfrCode === draft.receivingFacility.nhfrCode
+              )?.id ?? ""
+            }
+            onChange={(event) => {
+              const facility = facilities.find((item) => item.id === event.target.value);
+              if (!facility) return;
+              setDraft({
+                ...draft,
+                receivingFacility: structuredClone(facility.organization),
+                receivingPractitioner: structuredClone(facility.practitioner)
+              });
+            }}
+          >
+            {facilities
+              .filter((facility) => facility.id !== currentAccount.organizationId)
+              .map((facility) => (
+                <option value={facility.id} key={facility.id}>{facility.name}</option>
+              ))}
+          </SelectInput>
+        </FormField>
+        <div className="summary-grid">
+          <div><span>NHFR code</span><strong>{draft.receivingFacility.nhfrCode}</strong></div>
+          <div><span>HCPN</span><strong>{draft.receivingFacility.hcpnName}</strong></div>
+          <div><span>Contact</span><strong>{draft.receivingFacility.phone}</strong></div>
+          <div><span>Address</span><strong>{draft.receivingFacility.address.line}</strong></div>
+        </div>
+      </section>
 
       <section className="card">
         <p className="eyebrow">Patient</p>
@@ -167,29 +220,6 @@ function PersonSection({ title, person, onChange }: PersonSectionProps) {
         <FormField label="PRC license identifier"><TextInput value={person.license} onChange={(event) => update("license", event.target.value)} /></FormField>
         <CodingFields label="Practitioner role" value={person.role} onChange={(role) => update("role", role)} />
       </div>
-    </section>
-  );
-}
-
-interface OrganizationSectionProps {
-  title: string;
-  organization: ReferralDraft["initiatingFacility"];
-  onChange: (value: ReferralDraft["initiatingFacility"]) => void;
-}
-
-function OrganizationSection({ title, organization, onChange }: OrganizationSectionProps) {
-  const update = (key: keyof typeof organization, value: unknown) =>
-    onChange({ ...organization, [key]: value } as typeof organization);
-  return (
-    <section className="card">
-      <p className="eyebrow">Master data</p><h2>{title}</h2>
-      <div className="form-grid">
-        <FormField label="Facility name"><TextInput value={organization.name} onChange={(event) => update("name", event.target.value)} /></FormField>
-        <FormField label="NHFR code"><TextInput value={organization.nhfrCode} onChange={(event) => update("nhfrCode", event.target.value)} /></FormField>
-        <FormField label="HCPN name"><TextInput value={organization.hcpnName} onChange={(event) => update("hcpnName", event.target.value)} /></FormField>
-        <FormField label="Work phone"><TextInput value={organization.phone} onChange={(event) => update("phone", event.target.value)} /></FormField>
-      </div>
-      <AddressFields address={organization.address} onChange={(value) => update("address", value)} />
     </section>
   );
 }

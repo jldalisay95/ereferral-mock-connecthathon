@@ -1,32 +1,37 @@
 import { useMemo, useState } from "react";
+import { Navigate, useNavigate } from "react-router-dom";
 import { JsonPanel } from "../components/JsonPanel";
 import { ValidationPanel } from "../components/ValidationPanel";
 import { useAppContext } from "../context/useAppContext";
 import { buildReferralTransactionBundle } from "../fhir/builders";
-import {
-  parseTransactionResponse,
-  submitBundle,
-  validateBundle
-} from "../services/fhirClient";
-import { storage } from "../services/storage";
-import type { ValidationSummary } from "../types";
-
-const initialValidation: ValidationSummary = {
-  counts: { fatal: 0, error: 0, warning: 0, information: 0 },
-  issues: [],
-  blocking: false,
-  validated: false
-};
+import { emptyValidationSummary } from "../fhir/operationOutcome";
+import { validateBundleDetailed } from "../services/fhirClient";
 
 export function ReferralPreview() {
-  const { draft, endpoints } = useAppContext();
-  const bundle = useMemo(() => buildReferralTransactionBundle(draft), [draft]);
-  const [validation, setValidation] = useState(initialValidation);
+  const {
+    draft,
+    activeDraftRecord,
+    endpoints,
+    saveValidation,
+    submitCurrentReferral
+  } = useAppContext();
+  const navigate = useNavigate();
+  const bundle = useMemo(
+    () => (draft ? buildReferralTransactionBundle(draft) : null),
+    [draft]
+  );
+  const [validation, setValidation] = useState(
+    activeDraftRecord?.validationSummary ?? emptyValidationSummary()
+  );
   const [validating, setValidating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [acknowledgeUnvalidated, setAcknowledgeUnvalidated] = useState(false);
+  const [submitAnyway, setSubmitAnyway] = useState(false);
   const [message, setMessage] = useState("");
-  const [response, setResponse] = useState<unknown>(null);
+
+  if (!draft || !bundle || !activeDraftRecord) {
+    return <Navigate to="/referrals/new" replace />;
+  }
+  const currentBundle = bundle;
 
   const requiredMissing = [
     !draft.patient.given && "Patient given name",
@@ -47,12 +52,15 @@ export function ReferralPreview() {
     setValidating(true);
     setMessage("");
     try {
-      const summary = await validateBundle(endpoints.pherefBaseUrl, bundle);
-      setValidation(summary);
+      const result = await validateBundleDetailed(endpoints.pherefBaseUrl, currentBundle);
+      setValidation(result.summary);
+      saveValidation(result.summary, result.outcome);
     } catch (error) {
-      setValidation(initialValidation);
+      setValidation(emptyValidationSummary());
       setMessage(
-        `Validation could not be completed: ${error instanceof Error ? error.message : "network error"}`
+        `Validation could not be completed: ${
+          error instanceof Error ? error.message : "network error"
+        }`
       );
     } finally {
       setValidating(false);
@@ -60,24 +68,24 @@ export function ReferralPreview() {
   }
 
   async function submit() {
-    if (requiredMissing.length || validation.blocking) return;
-    if (!validation.validated && !acknowledgeUnvalidated) {
-      setMessage("Run validation or acknowledge the unvalidated demo submission.");
+    if (requiredMissing.length) return;
+    if (!validation.validated && !submitAnyway) {
+      setMessage("Run validation or explicitly choose Submit anyway for demo.");
+      return;
+    }
+    if (validation.blocking && !submitAnyway) {
+      setMessage("Blocking validation issues require explicit demo override.");
       return;
     }
     setSubmitting(true);
     setMessage("");
     try {
-      const transactionResponse = await submitBundle(endpoints.pherefBaseUrl, bundle);
-      setResponse(transactionResponse);
-      const patientName = `${draft.patient.given} ${draft.patient.family}`;
-      storage.saveReceipt(
-        parseTransactionResponse(transactionResponse, patientName, draft.referralId)
-      );
-      setMessage("Referral transaction submitted. Server-assigned resource IDs were saved locally.");
+      const record = await submitCurrentReferral(submitAnyway);
+      navigate(`/referrals/${record.id}`, { replace: true });
     } catch (error) {
-      setResponse(error);
-      setMessage(`Submission failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+      setMessage(
+        `Submission failed: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
     } finally {
       setSubmitting(false);
     }
@@ -111,24 +119,31 @@ export function ReferralPreview() {
           <button
             type="button"
             onClick={submit}
-            disabled={submitting || validation.blocking || Boolean(requiredMissing.length)}
+            disabled={
+              submitting ||
+              Boolean(requiredMissing.length) ||
+              (validation.blocking && !submitAnyway)
+            }
           >
-            {submitting ? "Submitting…" : "Submit transaction"}
+            {submitting
+              ? "Submitting…"
+              : endpoints.demoMode
+                ? "Submit to local demo"
+                : "Submit live transaction"}
           </button>
         </div>
-        {!validation.validated ? (
+        {validation.blocking || !validation.validated ? (
           <label className="check-row">
             <input
               type="checkbox"
-              checked={acknowledgeUnvalidated}
-              onChange={(event) => setAcknowledgeUnvalidated(event.target.checked)}
+              checked={submitAnyway}
+              onChange={(event) => setSubmitAnyway(event.target.checked)}
             />
-            I understand this is an unvalidated synthetic demo submission.
+            Submit anyway for demo; validation is missing or contains blocking issues.
           </label>
         ) : null}
       </section>
       <JsonPanel title="FHIR transaction Bundle JSON" value={bundle} />
-      {response ? <JsonPanel title="FHIR server response" value={response} /> : null}
     </div>
   );
 }

@@ -2,6 +2,19 @@ import type { FhirResource, ValidationIssue, ValidationSummary } from "../types"
 
 const emptyCounts = () => ({ fatal: 0, error: 0, warning: 0, information: 0 });
 
+export function emptyValidationSummary(): ValidationSummary {
+  return {
+    counts: emptyCounts(),
+    fatalCount: 0,
+    errorCount: 0,
+    warningCount: 0,
+    informationCount: 0,
+    issues: [],
+    blocking: false,
+    validated: false
+  };
+}
+
 function categorize(message: string, code?: string): ValidationIssue["category"] {
   const text = `${code ?? ""} ${message}`.toLowerCase();
   if (text.includes("code") || text.includes("value set") || text.includes("terminolog")) {
@@ -18,13 +31,7 @@ export function parseOperationOutcome(
 ): ValidationSummary {
   const counts = emptyCounts();
   if (!resource || resource.resourceType !== "OperationOutcome" || !Array.isArray(resource.issue)) {
-    return {
-      counts,
-      issues: [],
-      blocking: false,
-      validated: false,
-      httpStatus
-    };
+    return { ...emptyValidationSummary(), httpStatus };
   }
 
   const rawIssues = resource.issue
@@ -47,8 +54,12 @@ export function parseOperationOutcome(
         severity,
         code: typeof item.code === "string" ? item.code : undefined,
         message,
+        diagnostics: message,
         expression: Array.isArray(item.expression)
           ? item.expression.filter((value): value is string => typeof value === "string")
+          : undefined,
+        location: Array.isArray(item.location)
+          ? item.location.filter((value): value is string => typeof value === "string")
           : undefined,
         category: categorize(message, typeof item.code === "string" ? item.code : undefined)
       } satisfies ValidationIssue;
@@ -74,6 +85,10 @@ export function parseOperationOutcome(
 
   return {
     counts,
+    fatalCount: counts.fatal,
+    errorCount: counts.error,
+    warningCount: counts.warning,
+    informationCount: counts.information,
     issues,
     blocking: counts.fatal > 0 || counts.error > 0,
     validated: true,

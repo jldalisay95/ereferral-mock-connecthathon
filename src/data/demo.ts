@@ -1,4 +1,5 @@
-import type { ReferralDraft } from "../types";
+import { FACILITIES } from "./facilities";
+import type { FacilityDefinition, ReferralDraft } from "../types";
 
 const address = {
   line: "123 Connectathon Road",
@@ -13,47 +14,18 @@ const address = {
   postalCode: "5600"
 };
 
-export function createDemoDraft(): ReferralDraft {
+export function createDemoDraft(
+  referringFacility: FacilityDefinition = FACILITIES[0],
+  receivingFacility: FacilityDefinition = FACILITIES[1]
+): ReferralDraft {
   const now = new Date().toISOString().slice(0, 16);
   return {
     referralId: `SYN-${new Date().getFullYear()}-${Math.floor(Math.random() * 900000 + 100000)}`,
     authoredOn: now,
-    referringPractitioner: {
-      prefix: "Dr.",
-      given: "Maya",
-      family: "Santos",
-      license: "SYN-PRC-10001",
-      role: {
-        system: "http://snomed.info/sct",
-        code: "158965000",
-        display: "Doctor"
-      }
-    },
-    receivingPractitioner: {
-      prefix: "Dr.",
-      given: "Noel",
-      family: "Cruz",
-      license: "SYN-PRC-20002",
-      role: {
-        system: "http://snomed.info/sct",
-        code: "158965000",
-        display: "Doctor"
-      }
-    },
-    initiatingFacility: {
-      name: "Synthetic Kalibo Community Clinic",
-      nhfrCode: "SYN-NHFR-3056",
-      hcpnName: "Synthetic Aklan HCPN",
-      phone: "+63-900-000-3056",
-      address
-    },
-    receivingFacility: {
-      name: "Synthetic Provincial Referral Hospital",
-      nhfrCode: "SYN-NHFR-0513",
-      hcpnName: "Synthetic Aklan HCPN",
-      phone: "+63-900-000-0513",
-      address: { ...address, line: "456 Referral Avenue" }
-    },
+    referringPractitioner: structuredClone(referringFacility.practitioner),
+    receivingPractitioner: structuredClone(receivingFacility.practitioner),
+    initiatingFacility: structuredClone(referringFacility.organization),
+    receivingFacility: structuredClone(receivingFacility.organization),
     patient: {
       given: "Lina",
       middle: "Demo",

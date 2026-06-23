@@ -16,6 +16,11 @@ export class FhirHttpError extends Error {
   }
 }
 
+export interface DetailedValidationResult {
+  summary: ValidationSummary;
+  outcome?: FhirResource;
+}
+
 async function request(
   url: string,
   init: RequestInit = {}
@@ -39,8 +44,35 @@ async function request(
   return { resource, status: response.status };
 }
 
-export async function checkMetadata(baseUrl: string): Promise<FhirResource> {
+export async function getMetadata(baseUrl: string): Promise<FhirResource> {
   return (await request(`${baseUrl.replace(/\/$/, "")}/metadata`)).resource;
+}
+
+export const checkMetadata = getMetadata;
+
+export async function validateResourceDetailed(
+  baseUrl: string,
+  resourceType: string,
+  resource: FhirResource
+): Promise<DetailedValidationResult> {
+  try {
+    const result = await request(
+      `${baseUrl.replace(/\/$/, "")}/${resourceType}/$validate`,
+      { method: "POST", body: JSON.stringify(resource) }
+    );
+    return {
+      summary: parseOperationOutcome(result.resource, result.status),
+      outcome: result.resource
+    };
+  } catch (error) {
+    if (error instanceof FhirHttpError && error.resource) {
+      return {
+        summary: parseOperationOutcome(error.resource, error.status),
+        outcome: error.resource
+      };
+    }
+    throw error;
+  }
 }
 
 export async function validateResource(
@@ -48,24 +80,19 @@ export async function validateResource(
   resourceType: string,
   resource: FhirResource
 ): Promise<ValidationSummary> {
-  try {
-    const result = await request(
-      `${baseUrl.replace(/\/$/, "")}/${resourceType}/$validate`,
-      { method: "POST", body: JSON.stringify(resource) }
-    );
-    return parseOperationOutcome(result.resource, result.status);
-  } catch (error) {
-    if (error instanceof FhirHttpError && error.resource) {
-      return parseOperationOutcome(error.resource, error.status);
-    }
-    throw error;
-  }
+  return (await validateResourceDetailed(baseUrl, resourceType, resource)).summary;
 }
 
 export const validateBundle = (baseUrl: string, bundle: FhirResource) =>
   validateResource(baseUrl, "Bundle", bundle);
 
-export async function submitBundle(baseUrl: string, bundle: FhirResource): Promise<FhirResource> {
+export const validateBundleDetailed = (baseUrl: string, bundle: FhirResource) =>
+  validateResourceDetailed(baseUrl, "Bundle", bundle);
+
+export async function submitTransactionBundle(
+  baseUrl: string,
+  bundle: FhirResource
+): Promise<FhirResource> {
   return (
     await request(baseUrl.replace(/\/$/, ""), {
       method: "POST",
@@ -73,6 +100,8 @@ export async function submitBundle(baseUrl: string, bundle: FhirResource): Promi
     })
   ).resource;
 }
+
+export const submitBundle = submitTransactionBundle;
 
 export async function readResource(
   baseUrl: string,
@@ -98,15 +127,39 @@ export async function searchResources(
     : [];
 }
 
+export async function updateResource(
+  baseUrl: string,
+  resourceType: string,
+  id: string,
+  resource: FhirResource
+): Promise<FhirResource> {
+  return (
+    await request(`${baseUrl.replace(/\/$/, "")}/${resourceType}/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(resource)
+    })
+  ).resource;
+}
+
 export async function putResource(
   baseUrl: string,
   resource: FhirResource
 ): Promise<FhirResource> {
   if (!resource.id) throw new Error("Cannot update a resource without an id.");
+  return updateResource(baseUrl, resource.resourceType, resource.id, resource);
+}
+
+export async function patchResource(
+  baseUrl: string,
+  resourceType: string,
+  id: string,
+  patch: unknown
+): Promise<FhirResource> {
   return (
-    await request(`${baseUrl.replace(/\/$/, "")}/${resource.resourceType}/${resource.id}`, {
-      method: "PUT",
-      body: JSON.stringify(resource)
+    await request(`${baseUrl.replace(/\/$/, "")}/${resourceType}/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json-patch+json" },
+      body: JSON.stringify(patch)
     })
   ).resource;
 }

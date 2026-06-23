@@ -1,8 +1,8 @@
-# PHeRef Local EMR + eReferral Prototype
+# PHeRef Facility eReferral Connectathon Prototype
 
-A browser-only React/TypeScript demonstration app for the June 2026 Philippines FHIR Connectathon. It creates, validates, submits, retrieves, and updates one synthetic eReferral using FHIR R4 and the draft PHeRef profiles.
+A local React/TypeScript EMR mock application for demonstrating the June 2026 Philippines FHIR Connectathon eReferral workflow from both referring- and receiving-facility perspectives.
 
-This is not a production EMR. Do not enter real patient information or protected health information.
+This is not a production EMR. All patient information must remain synthetic.
 
 ## Source of truth
 
@@ -10,35 +10,14 @@ This is not a production EMR. Do not enter real patient information or protected
 - [June 2026 Philippines FHIR Connectathon repository](https://github.com/UPM-NTHC/June-2026-Philippines-FHIR-Connectathon)
 - [PHeRef acceptance criteria](https://docs.google.com/spreadsheets/d/1Z5k79KtCGaK5sJ5h9yKbku5epo10e-jmrLpsPp3-z4U/edit?gid=1488466081#gid=1488466081)
 
-The implementation follows the published profile and example where the acceptance table conflicts:
+The implementation follows the published profile where the acceptance table conflicts:
 
 - Referral category → `ServiceRequest.category`
 - Reason for referral / service type → `ServiceRequest.reasonCode`
 
-The table’s `ServiceRequest.priority` / `ServiceRequest.category` mapping cannot carry the published SNOMED value sets correctly and is documented in the UI.
+## Install and run
 
-## Features
-
-- Endpoint health checks through `/metadata`
-- Configurable PHeRef, PH Core, and terminology server URLs
-- Required terminology expansion with session caching and visible fallback errors
-- Synthetic patient, practitioners, roles, organizations, referral, clinical data, Task, and Provenance
-- 21-entry transaction Bundle:
-  - 7 conditional PUT master-data entries
-  - 14 POST referral/clinical/workflow entries
-- Bundle preview, JSON copy, `$validate`, OperationOutcome severity parsing, and submission
-- Transaction-response resource ID capture
-- Referral search by patient identifier/name, ServiceRequest status/subject, and Task status/focus
-- Receiving-facility clinical summary and full-resource Task PUT updates
-- Local browser persistence for draft, endpoint overrides, and recent receipts
-
-## Requirements
-
-- Node.js 20 or newer
-- npm
-- Browser access to the configured FHIR endpoints
-
-## Setup and run
+Requirements: Node.js 20+ and npm.
 
 ```powershell
 npm install
@@ -46,9 +25,117 @@ Copy-Item .env.example .env
 npm run dev
 ```
 
-Open the Vite URL, normally `http://localhost:5173`.
+Open `http://localhost:5173`.
 
-Environment variables:
+## Demo accounts
+
+The login page uses an account picker and no passwords.
+
+| Username | Role | Facility |
+|---|---|---|
+| `kalibo` | Referring facility | Kalibo Health Center, NHFR 3056 |
+| `drstmh` | Receiving facility | Dr. Rafael S. Tumbokon Memorial Hospital, NHFR 513 |
+| `admin` | Administration/read-all | Connectathon Administration |
+
+Sessions are stored in browser localStorage for demo purposes only.
+
+## Routes
+
+- `/login` — mock facility login
+- `/dashboard` — role-specific dashboard
+- `/referrals/new` — referring-facility referral form
+- `/referrals/preview` — Bundle preview, validation, and submission
+- `/referrals` — facility-scoped referral tracker
+- `/referrals/:id` — referral detail, timeline, and receiving workflow actions
+- `/inbox` — receiving-facility inbox and notifications
+- `/referrals/search` — remote FHIR search
+- `/terminology` — required ValueSet expansion
+- `/settings` — admin endpoint and Demo-mode configuration
+
+## Referring-facility workflow
+
+1. Log in as `kalibo`.
+2. Select **New Referral**.
+3. The initiating organization and practitioner are populated from the current facility.
+4. Select the receiving facility and complete the synthetic referral.
+5. Open **Preview FHIR Bundle**.
+6. Validate using `POST /Bundle/$validate`.
+7. Submit the referral.
+8. Open **Sent Referrals** to track status changes.
+
+The generated transaction contains 21 entries:
+
+- 7 conditional PUT master-data entries
+- 14 POST clinical, referral, Task, and Provenance entries
+
+All intra-Bundle references use matching `urn:uuid` fullUrls.
+
+## Receiving-facility workflow
+
+1. Log out and select `drstmh`.
+2. The dashboard and Inbox show the new referral and unread notification badge.
+3. Opening the referral marks its notification read.
+4. Review demographics, clinical details, Task data, validation output, Bundle JSON, and timeline.
+5. Update the referral to Received, Accepted, Rejected, Referred onward, or Completed.
+6. Rejection and onward referral require a reason; onward referral also requires a destination facility.
+7. Log back in as `kalibo` to see the status update and referring-facility notification.
+
+## Demo mode and live mode
+
+Demo mode is enabled by default:
+
+- `/metadata`, terminology operations, remote search, and validation can call live servers.
+- Bundle submission is resolved locally into a transaction-response-shaped Bundle.
+- Local resource IDs are generated and all `urn:uuid` references are rewritten to relative references.
+- Task updates modify the locally stored full Task resource.
+- No referral POST or Task PUT is sent externally.
+
+Admin can turn Demo mode off under **Settings**. Live mode:
+
+- submits the transaction Bundle to the PHeRef CDR;
+- captures IDs from `entry.response.location`;
+- reads the current Task, modifies it, and PUTs the complete Task resource;
+- preserves prior local state and records an error timeline event if the remote update fails.
+
+No automatic polling is used. Live records have a manual Task refresh action.
+
+## Notifications and status tracking
+
+Submitting a referral creates an unread notification for the receiving organization. Opening or receiving the referral marks it read. Receiving-facility status updates create a notification for the referring organization.
+
+Each referral stores an ordered timeline containing:
+
+- Draft
+- Validated or validation error
+- Submitted
+- Requested
+- Received
+- Accepted, Rejected, or Referred onward
+- Completed
+- Remote errors when applicable
+
+The tracker is scoped by role:
+
+- Referring users see referrals they created.
+- Receiving users see referrals assigned or forwarded to their facility.
+- Admin sees all local referrals.
+
+## Local persistence model
+
+A versioned localStorage repository stores:
+
+- current session;
+- endpoint and Demo-mode settings;
+- one active draft per referring account;
+- durable referral records and local FHIR resources;
+- transaction responses and resource references;
+- validation summaries and OperationOutcome resources;
+- timeline events;
+- notifications and read state.
+
+Legacy endpoint settings and compact receipts are migrated where sufficient draft data is available.
+
+## FHIR endpoints
 
 ```dotenv
 VITE_PHEREF_BASE_URL=https://cdr.pheref.fhirlab.net/fhir
@@ -56,49 +143,16 @@ VITE_PHCORE_BASE_URL=https://cdr.phcore.fhirlab.net/fhir
 VITE_TX_BASE_URL=https://tx.fhirlab.net/fhir
 ```
 
-The Dashboard can override these values locally without changing `.env`.
-
-## Connectathon demo workflow
-
-1. Open **Dashboard** and confirm all three `/metadata` checks are online.
-2. Open **Terminology Check** and expand all required value sets.
-3. Note that the PWD disability expansion may return HTTP 404. This is shown as a non-blocking warning.
-4. Open **New Referral**, review the synthetic demo case, and change fields if required.
-5. Open **Preview & Submit**.
-6. Inspect the human-readable summary and transaction Bundle JSON.
-7. Select **Validate Bundle**. HTTP 200 is not treated as success by itself; every `OperationOutcome.issue.severity` is inspected.
-8. Resolve fatal/error issues before submission. Warnings and information remain visible but do not block.
-9. Select **Submit transaction**. This performs:
-
-   ```http
-   POST https://cdr.pheref.fhirlab.net/fhir
-   Content-Type: application/fhir+json
-   ```
-
-10. Review the transaction-response Bundle and locally stored resource IDs.
-11. Open **Search Referrals** and search using a returned patient identifier, ServiceRequest status, or Task status/focus.
-12. Open the clinical summary and then the receiving-facility view.
-13. Advance the Task through `received`, `accepted`, and `completed`, or record `rejected` / `referred-onward` with an explanatory note.
+Admin can override these values locally.
 
 ## Validation behavior
 
-- Resource validation: `POST /{resourceType}/$validate`
-- Bundle validation: `POST /Bundle/$validate`
-- `fatal` and `error` are blocking.
-- `warning` and `information` are non-blocking.
-- HTTP 422 OperationOutcome responses are parsed and displayed.
-- Network/capability failures mark the Bundle as unvalidated. A user must explicitly acknowledge an unvalidated synthetic demo submission.
-
-## FHIR construction notes
-
-- All internal transaction references use `urn:uuid` values matching `Bundle.entry.fullUrl`.
-- Patient, Practitioner, PractitionerRole, and Organization data use conditional PUT by identifier.
-- ServiceRequest, Encounter, two Conditions, six Observations, Procedure, DiagnosticReport, Task, and Provenance use POST.
-- Confirmed PHeRef profiles are included in `meta.profile`.
-- PH Core Practitioner and Organization profiles are included.
-- DiagnosticReport omits `meta.profile` because no PHeRef DiagnosticReport profile is published.
-- The PWD extension uses nested `pwdId`, `disabilityType`, and `idExpirationDate` extensions.
-- The Provenance signature is synthetic base64 data, not a cryptographic signature.
+- HTTP status alone is never treated as validation success.
+- `OperationOutcome.issue.severity` is counted.
+- Fatal and error issues are blocking.
+- Warning and information issues are non-blocking.
+- Diagnostics are deduplicated for readability while raw severity counts are retained.
+- “Submit anyway for demo” requires explicit acknowledgement.
 
 ## Quality checks
 
@@ -108,25 +162,14 @@ npm run test
 npm run build
 ```
 
-Tests cover Bundle entry strategy and references, identifier/profile constants, clinical codes and UCUM units, PWD extension shape, Task workflow mappings, OperationOutcome handling, terminology URLs, transaction receipts, reference parsing, and a UI smoke test.
+Tests cover FHIR builders, terminology URLs, OperationOutcome parsing, Task transitions, session persistence, facility scoping, notifications, Demo-mode transaction resolution, and the complete referring-to-receiving UI workflow.
 
 ## Known limitations
 
 - PHeRef and PH Core are draft specifications under active development.
-- The published PHeRef package inspected for this implementation is version 0.1.0, built June 20, 2026.
-- The Connectathon repository was updated June 23, 2026.
 - The PWD disability ValueSet currently returns HTTP 404 from the configured terminology server.
-- The published sample Bundle has 21 entries although some narrative text says 20.
-- PSGC text/code fields use the Connectathon repository canonical
-  `https://fhir.doh.gov.ph/phcore/CodeSystem/PSGC`, but the app does not bundle a
-  43,770-concept selector.
-- Retrieval intentionally uses portable two-stage searches and direct reads instead of `_include`.
-- There is no authentication, authorization, national registry integration, production persistence, billing, or analytics.
-- Browser local storage is for synthetic demo state only and can be cleared through browser developer tools.
-
-## Recommended next improvements
-
-- Replace manual coded fields with terminology-backed autocomplete after PWD expansion is corrected.
-- Add a compact PSGC lookup dataset or approved terminology search.
-- Add server-specific optimistic concurrency using `If-Match`.
-- Add exportable Connectathon QA evidence containing requests, responses, and validation summaries.
+- PSGC fields use the Connectathon canonical, but the app does not bundle the full national selector.
+- Authentication, authorization, encryption, audit security, and production persistence are intentionally out of scope.
+- Notifications work within the same browser/localStorage profile; there is no cross-device delivery.
+- Admin is read-all/configuration only and cannot perform facility workflow actions.
+- The Provenance signature is a clearly synthetic placeholder rather than a cryptographic signature.
