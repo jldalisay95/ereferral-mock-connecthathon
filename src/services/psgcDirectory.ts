@@ -96,24 +96,26 @@ async function loadExpansion(
 ) {
   const key = `${baseUrl}|${valueSetId}|${canonical}`;
   if (!expansionCache.has(key)) {
-    const request = fetchExpansion(
-      canonicalExpandUrl(baseUrl, canonical, count),
-      signal
-    )
+    const snapshotFallback = () =>
+      loadBundledPsgcSnapshot().then((snapshot) => {
+        const fallback = snapshot[canonical];
+        if (fallback) return fallback;
+        throw new Error(`Bundled PSGC snapshot missing ${canonical}`);
+      });
+    const request = fetchExpansion(canonicalExpandUrl(baseUrl, canonical, count), signal)
       .catch((error) => {
         if (error instanceof Error && error.name === "AbortError") {
-          throw error;
+          return snapshotFallback();
         }
         return fetchExpansion(valueSetExpandUrl(baseUrl, valueSetId, count), signal);
       })
       .catch(async (error) => {
         if (error instanceof Error && error.name === "AbortError") {
-          throw error;
+          return snapshotFallback();
         }
-        const snapshot = await loadBundledPsgcSnapshot();
-        const fallback = snapshot[canonical];
-        if (fallback) return fallback;
-        throw error;
+        return snapshotFallback().catch(() => {
+          throw error;
+        });
       });
     expansionCache.set(
       key,

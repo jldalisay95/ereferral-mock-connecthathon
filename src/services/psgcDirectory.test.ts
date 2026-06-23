@@ -181,4 +181,33 @@ describe("PSGC directory", () => {
     expect(directory.regions).toHaveLength(2);
     expect(directory.cities[1].code).toBe("1206306000");
   });
+
+  it("uses the bundled PSGC snapshot when a live terminology request is aborted", async () => {
+    clearPsgcDirectoryCache();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async (input) => {
+        if (String(input).includes("psgc.generated.json")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              system: PSGC_SYSTEM,
+              version: PSGC_VERSION,
+              regions: expansions[PSGC_VALUE_SET_IDS.regions],
+              provinces: expansions[PSGC_VALUE_SET_IDS.provinces],
+              cities: expansions[PSGC_VALUE_SET_IDS.cities],
+              barangays: expansions[PSGC_VALUE_SET_IDS.barangays]
+            })
+          } as Response;
+        }
+        throw new DOMException("Aborted", "AbortError");
+      })
+    );
+    const directory = await loadPsgcDirectory("https://tx.example.test/fhir");
+    expect(directory.provinces.map((option) => option.code)).toEqual([
+      "0600400000",
+      "1206300000"
+    ]);
+  });
 });
