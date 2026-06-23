@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, Link, useNavigate } from "react-router-dom";
 import { JsonPanel } from "../components/JsonPanel";
 import { ValidationPanel } from "../components/ValidationPanel";
 import { useAppContext } from "../context/useAppContext";
 import { buildReferralTransactionBundle } from "../fhir/builders";
 import { emptyValidationSummary } from "../fhir/operationOutcome";
 import { validateBundleDetailed } from "../services/fhirClient";
+import { getReferralSubmissionMissing } from "../services/referralValidation";
 
 export function ReferralPreview() {
   const {
@@ -33,16 +34,7 @@ export function ReferralPreview() {
   }
   const currentBundle = bundle;
 
-  const requiredMissing = [
-    !draft.patient.given && "Patient given name",
-    !draft.patient.family && "Patient family name",
-    !draft.patient.birthDate && "Patient birth date",
-    !draft.patient.philSysId && "PhilSys ID",
-    !draft.initiatingFacility.nhfrCode && "Initiating facility NHFR code",
-    !draft.receivingFacility.nhfrCode && "Receiving facility NHFR code",
-    !draft.chiefComplaint && "Chief complaint",
-    !draft.workingImpression.code && "Working impression code"
-  ].filter(Boolean) as string[];
+  const requiredMissing = getReferralSubmissionMissing(draft);
 
   async function runValidation() {
     if (requiredMissing.length) {
@@ -52,7 +44,10 @@ export function ReferralPreview() {
     setValidating(true);
     setMessage("");
     try {
-      const result = await validateBundleDetailed(endpoints.pherefBaseUrl, currentBundle);
+      const result = await validateBundleDetailed(
+        endpoints.pherefBaseUrl,
+        currentBundle
+      );
       setValidation(result.summary);
       saveValidation(result.summary, result.outcome);
     } catch (error) {
@@ -74,7 +69,7 @@ export function ReferralPreview() {
       return;
     }
     if (validation.blocking && !submitAnyway) {
-      setMessage("Blocking validation issues require explicit demo override.");
+      setMessage("Blocking validation issues require an explicit demo override.");
       return;
     }
     setSubmitting(true);
@@ -100,21 +95,31 @@ export function ReferralPreview() {
           <div><span>Patient</span><strong>{draft.patient.given} {draft.patient.family}</strong></div>
           <div><span>From</span><strong>{draft.initiatingFacility.name}</strong></div>
           <div><span>To</span><strong>{draft.receivingFacility.name}</strong></div>
-          <div><span>Category</span><strong>{draft.referralCategory.display}</strong></div>
-          <div><span>Service type</span><strong>{draft.serviceType.display}</strong></div>
+          <div><span>Service category</span><strong>{draft.referralCategory.display}</strong></div>
+          <div><span>Priority</span><strong>{draft.priority}</strong></div>
+          <div><span>Requested service</span><strong>{draft.requestedService.display}</strong></div>
+          <div><span>Clinical reason</span><strong>{draft.clinicalReason.display}</strong></div>
+          <div><span>Consent</span><strong>{draft.consentGiven ? "Recorded locally" : "Missing"}</strong></div>
           <div><span>Bundle entries</span><strong>{Array.isArray(bundle.entry) ? bundle.entry.length : 0}</strong></div>
         </div>
       </section>
 
       {requiredMissing.length ? (
-        <div className="notice danger">Required fields missing: {requiredMissing.join(", ")}.</div>
+        <div className="notice danger">
+          Required fields missing: {requiredMissing.join(", ")}.
+        </div>
       ) : null}
       {message ? <div className="notice">{message}</div> : null}
       <ValidationPanel summary={validation} />
       <section className="card">
         <div className="button-row">
-          <button type="button" onClick={runValidation} disabled={validating || Boolean(requiredMissing.length)}>
-            {validating ? "Validating…" : "Validate Bundle"}
+          <Link className="button secondary" to="/referrals/new">Back to referral</Link>
+          <button
+            type="button"
+            onClick={runValidation}
+            disabled={validating || Boolean(requiredMissing.length)}
+          >
+            {validating ? "Validating..." : "Validate Bundle"}
           </button>
           <button
             type="button"
@@ -126,7 +131,7 @@ export function ReferralPreview() {
             }
           >
             {submitting
-              ? "Submitting…"
+              ? "Submitting..."
               : endpoints.demoMode
                 ? "Submit to local demo"
                 : "Submit live transaction"}

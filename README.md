@@ -1,23 +1,33 @@
-# PHeRef Facility eReferral Connectathon Prototype
+# Local EMR eReferral Mock
 
-A local React/TypeScript EMR mock application for demonstrating the June 2026 Philippines FHIR Connectathon eReferral workflow from both referring- and receiving-facility perspectives.
+A React and TypeScript facility workflow demo for the June 2026 Philippines
+FHIR Connectathon. It demonstrates local patient registration, referral
+creation, PHeReF Bundle validation and submission, receiving-facility response,
+notifications, tracking, timeline review, and printing.
 
-This is not a production EMR. All patient information must remain synthetic.
+This is a Connectathon mock, not a production EMR. Use synthetic data only.
 
 ## Source of truth
 
-- [PH eReferral Implementation Guide](https://build.fhir.org/ig/ph-ereferral-organization/ph-ereferral/en/)
-- [June 2026 Philippines FHIR Connectathon repository](https://github.com/UPM-NTHC/June-2026-Philippines-FHIR-Connectathon)
-- [PHeRef acceptance criteria](https://docs.google.com/spreadsheets/d/1Z5k79KtCGaK5sJ5h9yKbku5epo10e-jmrLpsPp3-z4U/edit?gid=1488466081#gid=1488466081)
+- [PHeReF Implementation Guide](https://build.fhir.org/ig/ph-ereferral-organization/ph-ereferral/en/)
+- [PHeReF Referral Workflow](https://build.fhir.org/ig/ph-ereferral-organization/ph-ereferral/en/referral-workflow.html)
+- [PHeReF Logical Information Model](https://build.fhir.org/ig/ph-ereferral-organization/ph-ereferral/en/logical-information-model.html)
+- [June 2026 Connectathon repository](https://github.com/UPM-NTHC/June-2026-Philippines-FHIR-Connectathon)
+- [Connectathon acceptance criteria](https://docs.google.com/spreadsheets/d/1Z5k79KtCGaK5sJ5h9yKbku5epo10e-jmrLpsPp3-z4U/edit?gid=1488466081#gid=1488466081)
 
-The implementation follows the published profile where the acceptance table conflicts:
+The generated Bundle follows the v0.1 profiles currently loaded by the
+Connectathon validation server:
 
-- Referral category → `ServiceRequest.category`
-- Reason for referral / service type → `ServiceRequest.reasonCode`
+- Referral category: `ServiceRequest.category` using Emergency or Outpatient
+- Urgency: `ServiceRequest.priority`
+- Requested service: `ServiceRequest.code`
+- Service type compatibility: `ServiceRequest.reasonCode`
+- Clinical reason: coded Condition referenced by `ServiceRequest.reasonReference`
+- Time called: draft mapping to `ServiceRequest.occurrenceDateTime`
 
 ## Install and run
 
-Requirements: Node.js 20+ and npm.
+Requirements: Node.js 20 or later and npm.
 
 ```powershell
 npm install
@@ -29,113 +39,143 @@ Open `http://localhost:5173`.
 
 ## Demo accounts
 
-The login page uses an account picker and no passwords.
+All accounts use password `demo123`.
 
-| Username | Role | Facility |
+| Username | Facility | Role |
 |---|---|---|
-| `kalibo` | Referring facility | Kalibo Health Center, NHFR 3056 |
-| `drstmh` | Receiving facility | Dr. Rafael S. Tumbokon Memorial Hospital, NHFR 513 |
-| `admin` | Administration/read-all | Connectathon Administration |
+| `kalibo` | Kalibo Health Center | Facility user |
+| `drstmh` | Dr. Rafael S. Tumbokon Memorial Hospital | Facility user |
+| `southcotabato` | South Cotabato Demo Facility | Facility user |
+| `admin` | Connectathon Administration | Read-all and endpoint configuration |
 
-Sessions are stored in browser localStorage for demo purposes only.
+Credentials and browser sessions are mock data stored locally. They do not
+provide production authentication or authorization.
 
-## Routes
+## Contextual facility behavior
 
-- `/login` — mock facility login
-- `/dashboard` — role-specific dashboard
-- `/referrals/new` — referring-facility referral form
-- `/referrals/preview` — Bundle preview, validation, and submission
-- `/referrals` — facility-scoped referral tracker
-- `/referrals/:id` — referral detail, timeline, and receiving workflow actions
-- `/inbox` — receiving-facility inbox and notifications
-- `/referrals/search` — remote FHIR search
-- `/terminology` — required ValueSet expansion
-- `/settings` — admin endpoint and Demo-mode configuration
+Facility roles are determined per referral:
 
-## Referring-facility workflow
+- The logged-in facility is the initiating facility when its organization ID
+  matches `referringOrganizationId`.
+- The same facility is the receiving facility when its organization ID matches
+  `receivingOrganizationId`.
+- Facility users can therefore have records in both Sent Referrals and Incoming
+  Referrals.
+- Only the receiving facility for a referral can record receiving responses or
+  care status updates.
 
-1. Log in as `kalibo`.
-2. Select **New Referral**.
-3. The initiating organization and practitioner are populated from the current facility.
-4. Select the receiving facility and complete the synthetic referral.
-5. Open **Preview FHIR Bundle**.
-6. Validate using `POST /Bundle/$validate`.
-7. Submit the referral.
-8. Open **Sent Referrals** to track status changes.
+Admin can review all local records but cannot perform facility workflow actions.
 
-The generated transaction contains 21 entries:
+## Referral demonstration
 
-- 7 conditional PUT master-data entries
-- 14 POST clinical, referral, Task, and Provenance entries
+### Send a referral
 
-All intra-Bundle references use matching `urn:uuid` fullUrls.
+1. Sign in as `kalibo`, `drstmh`, or `southcotabato`.
+2. Open Patient Registry to search, add, or update a synthetic patient.
+3. Open Generate Referral and select a patient.
+4. Record assessment details and confirm that local referral criteria are met.
+5. Record local patient or representative consent.
+6. Select another facility as the receiving destination.
+7. Review category, priority, requested service, clinical reason, time called,
+   notes, practitioners, and signature placeholder.
+8. Preview and validate the generated transaction Bundle.
+9. Submit in Demo mode and open the referral detail or print view.
 
-## Receiving-facility workflow
+### Receive and update a referral
 
-1. Log out and select `drstmh`.
-2. The dashboard and Inbox show the new referral and unread notification badge.
-3. Opening the referral marks its notification read.
-4. Review demographics, clinical details, Task data, validation output, Bundle JSON, and timeline.
-5. Update the referral to Received, Accepted, Rejected, Referred onward, or Completed.
-6. Rejection and onward referral require a reason; onward referral also requires a destination facility.
-7. Log back in as `kalibo` to see the status update and referring-facility notification.
+1. Sign out and sign in as the selected receiving facility.
+2. Open Incoming Referrals. New records are highlighted and have an unread
+   notification.
+3. Open the referral to acknowledge the notification.
+4. Review patient, routing, clinical, Task, timeline, and raw FHIR information.
+5. Select a receiving response or care status and enter required remarks.
+6. Submit the update and sign back into the initiating facility to see the new
+   status and notification.
 
-## Demo mode and live mode
+Supported receiving responses:
 
-Demo mode is enabled by default:
+- received
+- accepted
+- rejected
+- referred-onward
 
-- `/metadata`, terminology operations, remote search, and validation can call live servers.
-- Bundle submission is resolved locally into a transaction-response-shaped Bundle.
-- Local resource IDs are generated and all `urn:uuid` references are rewritten to relative references.
-- Task updates modify the locally stored full Task resource.
-- No referral POST or Task PUT is sent externally.
+Supported local care states:
 
-Admin can turn Demo mode off under **Settings**. Live mode:
+- arrived
+- admitted
+- ER observation
+- other care
+- discharged
 
-- submits the transaction Bundle to the PHeRef CDR;
-- captures IDs from `entry.response.location`;
-- reads the current Task, modifies it, and PUTs the complete Task resource;
-- preserves prior local state and records an error timeline event if the remote update fails.
+Care states do not define a new PHeReF code system. Arrived, admitted, ER
+observation, and other care map to `Task.status = in-progress`. Discharged and
+workflow closure map to `Task.status = completed`. The most recent PHeReF
+receiving response remains in `Task.businessStatus`.
 
-No automatic polling is used. Live records have a manual Task refresh action.
+## Patient Registry and walk-ins
 
-## Notifications and status tracking
+The registry is local and facility-scoped. It supports searches by first name,
+last name, birth date, PhilSys ID, and PhilHealth ID. Duplicate warnings use
+identifiers and name plus birth date.
 
-Submitting a referral creates an unread notification for the receiving organization. Opening or receiving the referral marks it read. Receiving-facility status updates create a notification for the referring organization.
+Walk-in records can use a temporary name and unknown demographics. They can
+later link to a full local profile. Because the current ERefPatient profile
+requires patient name, administrative gender, and birth date, incomplete
+walk-in records cannot be submitted as an eReferral.
 
-Each referral stores an ordered timeline containing:
+## Logical information model
 
-- Draft
-- Validated or validation error
-- Submitted
-- Requested
-- Received
-- Accepted, Rejected, or Referred onward
-- Completed
-- Remote errors when applicable
+The UI and local data model follow the PHeReF logical groups:
 
-The tracker is scoped by role:
+- Patient identity: Patient Registry, referral summary, and `Patient`.
+- Sending context: logged-in facility, practitioner, PractitionerRole, and
+  `ServiceRequest.requester`.
+- Receiving context: selected facility and `ServiceRequest.performer` or
+  `Task.owner`.
+- Referral request: referral category, priority, requested service, date, time called,
+  and notes on `ServiceRequest`.
+- Clinical reason and context: Condition, Observation, Procedure, and
+  `ServiceRequest.reasonReference` or `supportingInfo`. The requested service
+  is also repeated in `reasonCode` for compatibility with the active v0.1
+  validator binding.
+- Workflow and response: Task status, business status, notifications, and
+  timeline.
+- Audit and provenance: Provenance, `ServiceRequest.relevantHistory`, actor,
+  timestamp, and synthetic signature placeholder.
 
-- Referring users see referrals they created.
-- Receiving users see referrals assigned or forwarded to their facility.
-- Admin sees all local referrals.
+Consent and the referral-criteria decision are local metadata because PHeReF
+v0.1 does not define a formal mapping for them.
 
-## Local persistence model
+## FHIR transaction behavior
 
-A versioned localStorage repository stores:
+The Bundle uses matching `urn:uuid` references.
 
-- current session;
-- endpoint and Demo-mode settings;
-- one active draft per referring account;
-- durable referral records and local FHIR resources;
-- transaction responses and resource references;
-- validation summaries and OperationOutcome resources;
-- timeline events;
-- notifications and read state.
+Reusable resources use conditional PUT when a stable identifier is available:
 
-Legacy endpoint settings and compact receipts are migrated where sufficient draft data is available.
+- Patient
+- Practitioner
+- PractitionerRole
+- Organization
 
-## FHIR endpoints
+Patients without PhilSys or PhilHealth identification use POST. Event resources
+use POST:
+
+- ServiceRequest
+- Encounter
+- Condition
+- Observation
+- Procedure
+- DiagnosticReport
+- Task
+- Provenance
+
+DiagnosticReport carries synthetic attachment metadata but is not referenced by
+`ServiceRequest.supportingInfo`, because the current profile does not permit
+DiagnosticReport at that path.
+
+## Validation and endpoints
+
+Defaults:
 
 ```dotenv
 VITE_PHEREF_BASE_URL=https://cdr.pheref.fhirlab.net/fhir
@@ -143,16 +183,27 @@ VITE_PHCORE_BASE_URL=https://cdr.phcore.fhirlab.net/fhir
 VITE_TX_BASE_URL=https://tx.fhirlab.net/fhir
 ```
 
-Admin can override these values locally.
+Bundle validation uses `POST {PHeReF CDR}/Bundle/$validate`. The app parses
+`OperationOutcome.issue.severity`; fatal and error issues are blocking, while
+warning and information issues are non-blocking. HTTP 200 alone is not treated
+as successful validation.
 
-## Validation behavior
+Demo mode is enabled by default. It permits metadata, terminology, search, and
+validation calls but resolves referral submissions and Task writes locally.
+Only Admin can disable Demo mode and enable external writes.
 
-- HTTP status alone is never treated as validation success.
-- `OperationOutcome.issue.severity` is counted.
-- Fatal and error issues are blocking.
-- Warning and information issues are non-blocking.
-- Diagnostics are deduplicated for readability while raw severity counts are retained.
-- “Submit anyway for demo” requires explicit acknowledgement.
+## Notifications, timeline, and print
+
+Submitting a referral creates an unread notification for the receiving
+facility. Receiving-side updates create a notification for the initiating
+facility. Notifications persist in localStorage and are limited to the current
+browser profile.
+
+The timeline records assessment, criteria, consent, draft creation, validation,
+submission, receiving responses, care states, closure, and update failures.
+
+Every referral detail page links to a browser print view containing patient,
+routing, clinical, consent, status, and synthetic signature information.
 
 ## Quality checks
 
@@ -162,14 +213,20 @@ npm run test
 npm run build
 ```
 
-Tests cover FHIR builders, terminology URLs, OperationOutcome parsing, Task transitions, session persistence, facility scoping, notifications, Demo-mode transaction resolution, and the complete referring-to-receiving UI workflow.
+Vitest is limited to tests under `src/` and excludes generated or tool-managed
+directories such as `.trunk`, `dist`, and `artifacts`.
 
 ## Known limitations
 
-- PHeRef and PH Core are draft specifications under active development.
-- The PWD disability ValueSet currently returns HTTP 404 from the configured terminology server.
-- PSGC fields use the Connectathon canonical, but the app does not bundle the full national selector.
-- Authentication, authorization, encryption, audit security, and production persistence are intentionally out of scope.
-- Notifications work within the same browser/localStorage profile; there is no cross-device delivery.
-- Admin is read-all/configuration only and cannot perform facility workflow actions.
-- The Provenance signature is a clearly synthetic placeholder rather than a cryptographic signature.
+- PHeReF and PH Core remain draft specifications.
+- Back-referral is not implemented for the v0.1 workflow.
+- Referred-onward records an outcome and destination but does not automatically
+  create a replacement ServiceRequest.
+- Consent is local metadata and is not a formal FHIR Consent profile.
+- Attachment security and complete exchange behavior are not implemented.
+- Final facility and network identification policy remains outside this demo.
+- Non-response, SLA, transport, production security, and policy endorsement are
+  out of scope.
+- Notifications are not delivered across browsers or devices.
+- The signature is a synthetic Provenance placeholder, not a cryptographic
+  signature.

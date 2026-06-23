@@ -1,4 +1,9 @@
-import { IDENTIFIER_SYSTEMS, PROFILES } from "../../config/fhir";
+import {
+  IDENTIFIER_SYSTEMS,
+  PROFILES,
+  PSGC_SYSTEM,
+  PSGC_VERSION
+} from "../../config/fhir";
 import type { CodingInput, FhirResource, ReferralDraft } from "../../types";
 
 export interface ReferralReferences {
@@ -27,23 +32,32 @@ const codeable = (coding: CodingInput, text?: string) => ({
   ...(text ? { text } : {})
 });
 const iso = (value: string) => new Date(value).toISOString();
+const escapeXhtml = (value: string) =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+const narrative = (summary: string) => ({
+  status: "generated",
+  div: `<div xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><p>${escapeXhtml(summary)}</p></div>`
+});
 
 function address(input: ReferralDraft["patient"]["address"]) {
   const geographicExtensions = [
-    ["region", input.regionCode, input.region],
-    ["province", input.provinceCode, input.province],
-    ["city-municipality", input.cityCode, input.city],
-    ["barangay", input.barangayCode, input.barangay]
-  ].flatMap(([name, code, display]) =>
+    ["region", input.regionCode],
+    ["province", input.provinceCode],
+    ["city-municipality", input.cityCode],
+    ["barangay", input.barangayCode]
+  ].flatMap(([name, code]) =>
     code
       ? [
           {
             url: `https://fhir.doh.gov.ph/phcore/StructureDefinition/${name}`,
             valueCoding: {
-              system: "https://fhir.doh.gov.ph/phcore/CodeSystem/PSGC",
-              version: "0.1.0",
-              code,
-              display
+              system: PSGC_SYSTEM,
+              version: input.psgcVersion || PSGC_VERSION,
+              code
             }
           }
         ]
@@ -52,26 +66,34 @@ function address(input: ReferralDraft["patient"]["address"]) {
   return {
     ...(geographicExtensions.length ? { extension: geographicExtensions } : {}),
     use: "home",
-    line: [input.line],
-    city: input.city,
-    state: input.province,
-    postalCode: input.postalCode,
+    ...(input.line ? { line: [input.line] } : {}),
+    ...(input.city ? { city: input.city } : {}),
+    ...(input.province ? { state: input.province } : {}),
+    ...(input.postalCode ? { postalCode: input.postalCode } : {}),
     country: "PH"
   };
 }
 
 export function buildPatient(draft: ReferralDraft): FhirResource {
   const patient = draft.patient;
+  const identifiers = [
+    patient.philHealthId
+      ? { system: IDENTIFIER_SYSTEMS.philHealth, value: patient.philHealthId }
+      : null,
+    patient.philSysId
+      ? { system: IDENTIFIER_SYSTEMS.philSys, value: patient.philSysId }
+      : null
+  ].filter(Boolean);
   const extensions = patient.pwdEnabled
     ? [
         {
           url: PROFILES.pwdDisability,
           extension: [
             ...(patient.pwdId ? [{ url: "pwdId", valueString: patient.pwdId }] : []),
-            {
+            ...patient.disabilities.map((disability) => ({
               url: "disabilityType",
-              valueCodeableConcept: codeable(patient.disability)
-            },
+              valueCodeableConcept: codeable(disability)
+            })),
             ...(patient.pwdExpirationDate
               ? [{ url: "idExpirationDate", valueDate: patient.pwdExpirationDate }]
               : [])
@@ -83,11 +105,11 @@ export function buildPatient(draft: ReferralDraft): FhirResource {
     resourceType: "Patient",
     meta: profile(PROFILES.patient),
     language: "en",
+    text: narrative(
+      `Patient ${[patient.given, patient.middle, patient.family].filter(Boolean).join(" ")}`
+    ),
     ...(extensions.length ? { extension: extensions } : {}),
-    identifier: [
-      { system: IDENTIFIER_SYSTEMS.philHealth, value: patient.philHealthId },
-      { system: IDENTIFIER_SYSTEMS.philSys, value: patient.philSysId }
-    ],
+    ...(identifiers.length ? { identifier: identifiers } : {}),
     active: true,
     name: [
       {
@@ -96,26 +118,39 @@ export function buildPatient(draft: ReferralDraft): FhirResource {
         given: [patient.given, ...(patient.middle ? [patient.middle] : [])]
       }
     ],
-    telecom: [{ system: "phone", value: patient.phone, use: "mobile" }],
+    ...(patient.phone
+      ? { telecom: [{ system: "phone", value: patient.phone, use: "mobile" }] }
+      : {}),
     gender: patient.gender,
     birthDate: patient.birthDate,
-    address: [address(patient.address)],
-    contact: [
-      {
-        relationship: [
-          {
-            coding: [
-              {
-                system: "http://terminology.hl7.org/CodeSystem/v3-RoleCode",
-                code: patient.contactRelationship
-              }
-            ]
-          }
-        ],
-        name: { text: patient.contactName },
-        telecom: [{ system: "phone", value: patient.contactPhone, use: "mobile" }]
-      }
-    ]
+    ...(patient.address.line ? { address: [address(patient.address)] } : {}),
+    ...(patient.contactName || patient.contactPhone
+      ? {
+          contact: [
+            {
+              relationship: [
+                {
+                  coding: [
+                    {
+                      system: patient.contactRelationship.system,
+                      code: patient.contactRelationship.code,
+                      display: patient.contactRelationship.display
+                    }
+                  ]
+                }
+              ],
+              ...(patient.contactName ? { name: { text: patient.contactName } } : {}),
+              ...(patient.contactPhone
+                ? {
+                    telecom: [
+                      { system: "phone", value: patient.contactPhone, use: "mobile" }
+                    ]
+                  }
+                : {})
+            }
+          ]
+        }
+      : {})
   };
 }
 
@@ -126,6 +161,9 @@ export function buildPractitioner(
     resourceType: "Practitioner",
     meta: profile(PROFILES.practitioner),
     language: "en",
+    text: narrative(
+      `Practitioner ${[person.prefix, person.given, person.family].filter(Boolean).join(" ")}`
+    ),
     identifier: [{ system: IDENTIFIER_SYSTEMS.prc, value: person.license }],
     name: [
       {
@@ -147,6 +185,9 @@ export function buildPractitionerRole(
     resourceType: "PractitionerRole",
     meta: profile(PROFILES.practitionerRole),
     language: "en",
+    text: narrative(
+      `${person.role.display} for ${person.given} ${person.family}`
+    ),
     identifier: [{ system: IDENTIFIER_SYSTEMS.prc, value: person.license }],
     practitioner: reference(practitionerRef),
     organization: reference(organizationRef),
@@ -161,6 +202,7 @@ export function buildOrganization(
     resourceType: "Organization",
     meta: profile(PROFILES.organization),
     language: "en",
+    text: narrative(`Organization ${input.name}`),
     active: true,
     identifier: [
       { system: IDENTIFIER_SYSTEMS.nhfr, value: input.nhfrCode },
@@ -177,13 +219,15 @@ export function buildEncounter(draft: ReferralDraft, refs: ReferralReferences): 
     resourceType: "Encounter",
     meta: profile(PROFILES.encounter),
     language: "en",
+    text: narrative(`Referral encounter for ${draft.patient.given} ${draft.patient.family}`),
     status: "finished",
     class: {
       system: "http://terminology.hl7.org/CodeSystem/v3-ActCode",
       code: "AMB",
       display: "ambulatory"
     },
-    subject: reference(refs.patient)
+    subject: reference(refs.patient),
+    basedOn: [reference(refs.serviceRequest)]
   };
 }
 
@@ -195,6 +239,7 @@ export function buildChiefComplaintCondition(
     resourceType: "Condition",
     meta: profile(PROFILES.condition),
     language: "en",
+    text: narrative(`Chief complaint: ${draft.chiefComplaint}`),
     clinicalStatus: {
       coding: [
         {
@@ -229,6 +274,7 @@ export function buildWorkingImpressionCondition(
     resourceType: "Condition",
     meta: profile(PROFILES.condition),
     language: "en",
+    text: narrative(`Clinical reason: ${draft.workingImpressionText}`),
     clinicalStatus: {
       coding: [
         {
@@ -257,7 +303,7 @@ export function buildWorkingImpressionCondition(
         ]
       }
     ],
-    code: codeable(draft.workingImpression, draft.workingImpressionText),
+    code: codeable(draft.clinicalReason, draft.workingImpressionText),
     subject: reference(refs.patient),
     encounter: reference(refs.encounter)
   };
@@ -306,6 +352,7 @@ export function buildVitalSignObservation(
     resourceType: "Observation",
     meta: profile(PROFILES.observation),
     language: "en",
+    text: narrative(`${definition.display}: ${draft.vitals[kind]} ${definition.unit}`),
     status: "final",
     category: [
       {
@@ -342,6 +389,9 @@ export function buildBloodPressureObservation(
     resourceType: "Observation",
     meta: profile(PROFILES.observation),
     language: "en",
+    text: narrative(
+      `Blood pressure: ${draft.vitals.systolic}/${draft.vitals.diastolic} mmHg`
+    ),
     status: "final",
     category: [
       {
@@ -411,6 +461,7 @@ export function buildProcedure(draft: ReferralDraft, refs: ReferralReferences): 
     resourceType: "Procedure",
     meta: profile(PROFILES.procedure),
     language: "en",
+    text: narrative(`Treatment given: ${draft.treatment}`),
     status: "completed",
     code: {
       coding: [
@@ -434,6 +485,7 @@ export function buildDiagnosticReport(
   return {
     resourceType: "DiagnosticReport",
     language: "en",
+    text: narrative(`${draft.labTitle}: ${draft.labConclusion}`),
     status: "final",
     code: {
       coding: [
@@ -465,6 +517,9 @@ export function buildServiceRequest(
     resourceType: "ServiceRequest",
     meta: profile(PROFILES.serviceRequest),
     language: "en",
+    text: narrative(
+      `${draft.referralCategory.display} ${draft.requestedService.display} referral for ${draft.patient.given} ${draft.patient.family}`
+    ),
     requisition: { system: IDENTIFIER_SYSTEMS.referral, value: draft.referralId },
     status: "active",
     intent: "order",
@@ -483,20 +538,26 @@ export function buildServiceRequest(
         text: draft.referralCategory.display
       }
     ],
+    priority: draft.priority,
+    code: codeable(draft.requestedService),
     subject: reference(refs.patient),
     encounter: reference(refs.encounter),
-    occurrenceDateTime: iso(draft.authoredOn),
+    occurrenceDateTime: iso(draft.timeCalled),
     authoredOn: iso(draft.authoredOn),
     requester: reference(refs.referringRole),
     performer: [reference(refs.receivingRole)],
-    reasonCode: [codeable(draft.serviceType, draft.referralNarrative)],
+    reasonCode: [codeable(draft.requestedService, draft.referralNarrative)],
     reasonReference: [reference(refs.workingImpression)],
     supportingInfo: [
       reference(refs.chiefComplaint),
       ...refs.observations.map(reference),
       reference(refs.procedure)
     ],
-    note: [{ text: draft.referralNarrative }]
+    note: [
+      { text: draft.referralNarrative },
+      ...(draft.remarks ? [{ text: draft.remarks }] : [])
+    ],
+    relevantHistory: [reference(refs.provenance)]
   };
 }
 
@@ -505,6 +566,7 @@ export function buildTask(draft: ReferralDraft, refs: ReferralReferences): FhirR
     resourceType: "Task",
     meta: profile(PROFILES.task),
     language: "en",
+    text: narrative(`Referral workflow task for ${draft.referralId}`),
     status: "requested",
     intent: "order",
     code: {
@@ -523,7 +585,7 @@ export function buildTask(draft: ReferralDraft, refs: ReferralReferences): FhirR
     lastModified: iso(draft.authoredOn),
     requester: reference(refs.referringRole),
     owner: reference(refs.receivingRole),
-    note: [{ text: "Synthetic referral awaiting receiving-facility response." }]
+    note: [{ text: "Referral awaiting receiving-facility response." }]
   };
 }
 
@@ -535,6 +597,7 @@ export function buildProvenance(
     resourceType: "Provenance",
     meta: profile(PROFILES.provenance),
     language: "en",
+    text: narrative(`Referral creation provenance for ${draft.referralId}`),
     target: [reference(refs.serviceRequest)],
     recorded: iso(draft.authoredOn),
     activity: {
@@ -583,14 +646,17 @@ function newUrn() {
 }
 
 export function buildReferralTransactionBundle(draft: ReferralDraft): FhirResource {
+  const hasReceivingPractitioner = Boolean(draft.receivingPractitioner);
+  const receivingOrganizationReference =
+    draft.receivingFacility.fhirReference ?? newUrn();
   const refs: ReferralReferences = {
     patient: newUrn(),
     referringPractitioner: newUrn(),
-    receivingPractitioner: newUrn(),
+    receivingPractitioner: hasReceivingPractitioner ? newUrn() : receivingOrganizationReference,
     initiatingOrganization: newUrn(),
-    receivingOrganization: newUrn(),
+    receivingOrganization: receivingOrganizationReference,
     referringRole: newUrn(),
-    receivingRole: newUrn(),
+    receivingRole: hasReceivingPractitioner ? newUrn() : receivingOrganizationReference,
     serviceRequest: newUrn(),
     encounter: newUrn(),
     chiefComplaint: newUrn(),
@@ -601,14 +667,26 @@ export function buildReferralTransactionBundle(draft: ReferralDraft): FhirResour
     task: newUrn(),
     provenance: newUrn()
   };
-  const masterEntries = [
-    {
-      fullUrl: refs.patient,
-      resource: buildPatient(draft),
-      request: {
+  const patientRequest = draft.patient.philSysId
+    ? {
         method: "PUT",
         url: `Patient?identifier=${IDENTIFIER_SYSTEMS.philSys}|${draft.patient.philSysId}`
       }
+    : draft.patient.philHealthId
+      ? {
+          method: "PUT",
+          url: `Patient?identifier=${IDENTIFIER_SYSTEMS.philHealth}|${draft.patient.philHealthId}`
+        }
+      : { method: "POST", url: "Patient" };
+  const masterEntries: Array<{
+    fullUrl: string;
+    resource: FhirResource;
+    request: { method: string; url: string };
+  }> = [
+    {
+      fullUrl: refs.patient,
+      resource: buildPatient(draft),
+      request: patientRequest
     },
     {
       fullUrl: refs.referringPractitioner,
@@ -619,27 +697,11 @@ export function buildReferralTransactionBundle(draft: ReferralDraft): FhirResour
       }
     },
     {
-      fullUrl: refs.receivingPractitioner,
-      resource: buildPractitioner(draft.receivingPractitioner),
-      request: {
-        method: "PUT",
-        url: `Practitioner?identifier=${IDENTIFIER_SYSTEMS.prc}|${draft.receivingPractitioner.license}`
-      }
-    },
-    {
       fullUrl: refs.initiatingOrganization,
       resource: buildOrganization(draft.initiatingFacility),
       request: {
         method: "PUT",
         url: `Organization?identifier=${IDENTIFIER_SYSTEMS.nhfr}|${draft.initiatingFacility.nhfrCode}`
-      }
-    },
-    {
-      fullUrl: refs.receivingOrganization,
-      resource: buildOrganization(draft.receivingFacility),
-      request: {
-        method: "PUT",
-        url: `Organization?identifier=${IDENTIFIER_SYSTEMS.nhfr}|${draft.receivingFacility.nhfrCode}`
       }
     },
     {
@@ -654,19 +716,41 @@ export function buildReferralTransactionBundle(draft: ReferralDraft): FhirResour
         url: `PractitionerRole?identifier=${IDENTIFIER_SYSTEMS.prc}|${draft.referringPractitioner.license}`
       }
     },
-    {
-      fullUrl: refs.receivingRole,
-      resource: buildPractitionerRole(
-        draft.receivingPractitioner,
-        refs.receivingPractitioner,
-        refs.receivingOrganization
-      ),
+  ];
+  if (!draft.receivingFacility.fhirReference) {
+    masterEntries.push({
+      fullUrl: refs.receivingOrganization,
+      resource: buildOrganization(draft.receivingFacility),
       request: {
         method: "PUT",
-        url: `PractitionerRole?identifier=${IDENTIFIER_SYSTEMS.prc}|${draft.receivingPractitioner.license}`
+        url: `Organization?identifier=${IDENTIFIER_SYSTEMS.nhfr}|${draft.receivingFacility.nhfrCode}`
       }
-    }
-  ];
+    });
+  }
+  if (draft.receivingPractitioner) {
+    masterEntries.push(
+      {
+        fullUrl: refs.receivingPractitioner,
+        resource: buildPractitioner(draft.receivingPractitioner),
+        request: {
+          method: "PUT",
+          url: `Practitioner?identifier=${IDENTIFIER_SYSTEMS.prc}|${draft.receivingPractitioner.license}`
+        }
+      },
+      {
+        fullUrl: refs.receivingRole,
+        resource: buildPractitionerRole(
+          draft.receivingPractitioner,
+          refs.receivingPractitioner,
+          refs.receivingOrganization
+        ),
+        request: {
+          method: "PUT",
+          url: `PractitionerRole?identifier=${IDENTIFIER_SYSTEMS.prc}|${draft.receivingPractitioner.license}`
+        }
+      }
+    );
+  }
   const observations = [
     buildBloodPressureObservation(draft, refs),
     buildVitalSignObservation(draft, refs, "heartRate"),

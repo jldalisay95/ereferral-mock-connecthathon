@@ -1,74 +1,53 @@
 import { FACILITIES } from "./facilities";
-import type { FacilityDefinition, ReferralDraft } from "../types";
+import { DEMO_PATIENTS } from "./patients";
+import type {
+  FacilityDefinition,
+  PatientRecord,
+  ReferralDraft
+} from "../types";
 
-const address = {
-  line: "123 Connectathon Road",
-  barangay: "Poblacion",
-  barangayCode: "0600407013",
-  city: "Kalibo",
-  cityCode: "0600407000",
-  province: "Aklan",
-  provinceCode: "0600400000",
-  region: "Region VI (Western Visayas)",
-  regionCode: "0600000000",
-  postalCode: "5600"
-};
+export const CONSENT_STATEMENT =
+  "Patient/representative consent was obtained for referral and data sharing for care coordination.";
 
 export function createDemoDraft(
   referringFacility: FacilityDefinition = FACILITIES[0],
-  receivingFacility: FacilityDefinition = FACILITIES[1]
+  receivingFacility: FacilityDefinition = FACILITIES[1],
+  patientRecord: PatientRecord = DEMO_PATIENTS[0]
 ): ReferralDraft {
   const now = new Date().toISOString().slice(0, 16);
   return {
     referralId: `SYN-${new Date().getFullYear()}-${Math.floor(Math.random() * 900000 + 100000)}`,
+    patientRecordId: patientRecord.id,
     authoredOn: now,
+    timeCalled: now,
     referringPractitioner: structuredClone(referringFacility.practitioner),
     receivingPractitioner: structuredClone(receivingFacility.practitioner),
     initiatingFacility: structuredClone(referringFacility.organization),
     receivingFacility: structuredClone(receivingFacility.organization),
-    patient: {
-      given: "Lina",
-      middle: "Demo",
-      family: "Dela Cruz",
-      gender: "female",
-      birthDate: "1992-04-18",
-      philSysId: "SYN-1992-0418-0001",
-      philHealthId: "SYN-PHIC-000001",
-      phone: "+63-900-000-0001",
-      address: { ...address, line: "789 Synthetic Street" },
-      contactName: "Ramon Dela Cruz",
-      contactRelationship: "SPS",
-      contactPhone: "+63-900-000-0002",
-      pwdEnabled: false,
-      pwdId: "",
-      disability: {
-        system: "https://fhir.doh.gov.ph/pheref/CodeSystem/pwd-disability-type-cs",
-        code: "physical",
-        display: "Physical/Orthopedic Disability"
-      },
-      pwdExpirationDate: ""
-    },
+    patient: structuredClone(patientRecord.patient),
     referralCategory: {
       system: "http://snomed.info/sct",
       code: "73770003",
       display: "Emergency"
     },
-    serviceType: {
+    priority: "urgent",
+    requestedService: {
       system: "http://snomed.info/sct",
       code: "11429006",
       display: "Consultation"
     },
+    clinicalReason: {
+      system: "http://snomed.info/sct",
+      code: "59621000",
+      display: "Essential hypertension"
+    },
     referralNarrative:
       "Synthetic urgent referral for specialist assessment and higher-level monitoring.",
+    remarks: "Please advise the patient and referring facility of the receiving response.",
     chiefComplaint: "Severe headache and dizziness for two days",
     clinicalHistory:
       "Synthetic history: symptoms persisted despite initial supportive care.",
     workingImpressionText: "Hypertensive disorder requiring specialist assessment",
-    workingImpression: {
-      system: "http://snomed.info/sct",
-      code: "38341003",
-      display: "Hypertensive disorder"
-    },
     vitals: {
       observedAt: now,
       systolic: 170,
@@ -83,6 +62,9 @@ export function createDemoDraft(
     labTitle: "Synthetic urinalysis summary",
     labConclusion: "Synthetic result: protein detected; specialist review requested.",
     labAttachmentBase64: btoa("SYNTHETIC LAB RESULT - NOT FOR CLINICAL USE"),
+    referralCriteriaSatisfied: false,
+    consentGiven: false,
+    consentStatement: CONSENT_STATEMENT,
     signatureBase64: btoa("synthetic-connectathon-signature")
   };
 }

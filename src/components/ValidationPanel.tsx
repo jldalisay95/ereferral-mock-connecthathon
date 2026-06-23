@@ -24,7 +24,7 @@ export function ValidationPanel({ summary }: ValidationPanelProps) {
         <ul className="issue-list">
           {summary.issues.map((issue, index) => (
             <li key={`${issue.severity}-${issue.message}-${index}`}>
-              <strong>{issue.severity}</strong> · {issue.category}: {issue.message}
+              <strong>{issue.severity}</strong> - {issue.category}: {issue.message}
               {(issue.occurrences ?? 1) > 1 ? (
                 <span className="occurrence">Repeated {issue.occurrences} times</span>
               ) : null}

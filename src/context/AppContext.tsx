@@ -1,6 +1,12 @@
 import { useMemo, useState, type PropsWithChildren } from "react";
 import { DEFAULT_ENDPOINTS } from "../config/fhir";
-import { DEMO_ACCOUNTS, FACILITIES, findAccount, findFacility } from "../data/facilities";
+import {
+  DEMO_ACCOUNTS,
+  FACILITIES,
+  authenticateAccount,
+  findAccount,
+  findFacility
+} from "../data/facilities";
 import { createDemoDraft } from "../data/demo";
 import { applyTaskTransition } from "../fhir/taskTransitions";
 import {
@@ -10,24 +16,31 @@ import {
   updateResource
 } from "../services/fhirClient";
 import { findResource, resolveTransactionBundle } from "../services/demoFhir";
-import {
-  createNotification,
-  localRepository
-} from "../services/localRepository";
+import { createNotification, localRepository } from "../services/localRepository";
+import { organizationDestinationId } from "../services/organizationDirectory";
+import { createPatientRecord } from "../services/patientRegistry";
+import { assertReferralSubmissionReady } from "../services/referralValidation";
 import {
   createDraftRecord,
   createTimelineEvent,
+  incomingReferralsForAccount,
   notificationsForAccount,
   referralsForAccount,
+  sentReferralsForAccount,
   updateDraftRecord
 } from "../services/referralRecords";
 import type {
   AppSettings,
+  CareStatus,
   FhirResource,
+  PatientInput,
+  PatientRecord,
   PersistedAppState,
+  ReceivingResponse,
   ReferralDraft,
   ReferralRecord,
   ReferralStatus,
+  RegistryType,
   TaskTransition,
   ValidationSummary
 } from "../types";
@@ -48,20 +61,41 @@ function referencesFromResources(resources: FhirResource[]) {
   };
 }
 
-function statusFromTask(task: FhirResource): ReferralStatus {
-  const businessCode = (
+function businessStatusFromTask(task: FhirResource): ReceivingResponse | undefined {
+  const code = (
     task.businessStatus as { coding?: Array<{ code?: string }> } | undefined
   )?.coding?.[0]?.code;
-  if (businessCode === "referred-onward") return "referred-onward";
+  return code === "received" ||
+    code === "accepted" ||
+    code === "rejected" ||
+    code === "referred-onward"
+    ? code
+    : undefined;
+}
+
+function statusFromTask(task: FhirResource): ReferralStatus {
+  const businessStatus = businessStatusFromTask(task);
+  if (businessStatus === "referred-onward") return "referred-onward";
   const status = String(task.status ?? "requested");
   return status === "received" ||
     status === "accepted" ||
     status === "rejected" ||
     status === "completed" ||
     status === "cancelled" ||
+    status === "failed" ||
     status === "in-progress"
     ? status
     : "requested";
+}
+
+function careStatusFromTransition(transition: TaskTransition): CareStatus | undefined {
+  return transition === "arrived" ||
+    transition === "admitted" ||
+    transition === "er-observation" ||
+    transition === "other-care" ||
+    transition === "discharged"
+    ? transition
+    : undefined;
 }
 
 export function AppProvider({ children }: PropsWithChildren) {
@@ -79,12 +113,20 @@ export function AppProvider({ children }: PropsWithChildren) {
     });
   }
 
-  function login(accountId: string) {
-    const account = findAccount(accountId);
-    if (!account) throw new Error("Unknown demo account.");
+  function login(username: string, password: string) {
+    const account = authenticateAccount(username, password);
+    if (!account) throw new Error("Invalid username or password.");
     commit((current) => ({
       ...current,
-      session: { userId: account.id, loggedInAt: new Date().toISOString() }
+      session: {
+        userId: account.id,
+        username: account.username,
+        displayName: account.displayName,
+        role: account.role,
+        facilityId: account.organizationId,
+        facilityName: account.organizationName,
+        loggedInAt: new Date().toISOString()
+      }
     }));
   }
 
@@ -99,19 +141,85 @@ export function AppProvider({ children }: PropsWithChildren) {
   function resetEndpoints() {
     commit((current) => ({
       ...current,
-      settings: { version: 2, ...DEFAULT_ENDPOINTS }
+      settings: { version: 3, ...DEFAULT_ENDPOINTS }
     }));
   }
 
-  function startNewReferral(): string {
-    if (!currentAccount || currentAccount.role !== "referring_facility_user") {
-      throw new Error("Only referring-facility users can create referrals.");
+  function savePatient(
+    patient: PatientInput,
+    registryType: RegistryType,
+    notes: string,
+    existingId?: string
+  ): PatientRecord {
+    if (!currentAccount || currentAccount.role !== "facility_user") {
+      throw new Error("A facility account is required to maintain the patient registry.");
     }
+    const existing = existingId
+      ? state.patients.find(
+          (record) =>
+            record.id === existingId &&
+            record.organizationId === currentAccount.organizationId
+        )
+      : undefined;
+    const record = existing
+      ? {
+          ...existing,
+          patient: structuredClone(patient),
+          registryType,
+          notes,
+          updatedAt: new Date().toISOString()
+        }
+      : createPatientRecord(
+          currentAccount.organizationId,
+          structuredClone(patient),
+          registryType,
+          notes
+        );
+    commit((current) => ({
+      ...current,
+      patients: existing
+        ? current.patients.map((item) => (item.id === record.id ? record : item))
+        : [record, ...current.patients]
+    }));
+    return record;
+  }
+
+  function linkWalkInPatient(walkInId: string, patientId: string) {
+    if (!currentAccount || currentAccount.role !== "facility_user") return;
+    commit((current) => ({
+      ...current,
+      patients: current.patients.map((patient) =>
+        patient.id === walkInId &&
+        patient.organizationId === currentAccount.organizationId &&
+        patient.registryType === "walk-in"
+          ? {
+              ...patient,
+              linkedPatientId: patientId,
+              updatedAt: new Date().toISOString()
+            }
+          : patient
+      )
+    }));
+  }
+
+  function startNewReferral(patientId: string): string {
+    if (!currentAccount || currentAccount.role !== "facility_user") {
+      throw new Error("Only facility users can create referrals.");
+    }
+    const patient = state.patients.find(
+      (record) =>
+        record.id === patientId &&
+        record.organizationId === currentAccount.organizationId
+    );
     const referring = findFacility(currentAccount.organizationId);
-    const receiving = FACILITIES.find((facility) => facility.id !== currentAccount.organizationId);
-    if (!referring || !receiving) throw new Error("Demo facility configuration is incomplete.");
+    const receiving = FACILITIES.find(
+      (facility) => facility.id !== currentAccount.organizationId
+    );
+    if (!patient || !referring || !receiving) {
+      throw new Error("Patient or facility configuration is incomplete.");
+    }
     const record = createDraftRecord(
-      createDemoDraft(referring, receiving),
+      createDemoDraft(referring, receiving, patient),
       currentAccount,
       receiving.id
     );
@@ -125,16 +233,51 @@ export function AppProvider({ children }: PropsWithChildren) {
 
   function setDraft(draft: ReferralDraft) {
     if (!currentAccount || !activeDraftRecord) return;
-    const receiving = FACILITIES.find(
-      (facility) => facility.organization.nhfrCode === draft.receivingFacility.nhfrCode
-    );
+    const receiving = draft.receivingFacility.fhirReference
+      ? undefined
+      : FACILITIES.find(
+          (facility) =>
+            facility.organization.nhfrCode === draft.receivingFacility.nhfrCode
+        );
+    const previous = activeDraftRecord.draft;
     commit((current) => ({
       ...current,
-      referrals: current.referrals.map((record) =>
-        record.id === activeDraftRecord.id
-          ? updateDraftRecord(record, draft, receiving?.id ?? record.receivingOrganizationId)
-          : record
-      )
+      referrals: current.referrals.map((record) => {
+        if (record.id !== activeDraftRecord.id) return record;
+        const updated = updateDraftRecord(
+          record,
+          draft,
+          receiving?.id ?? organizationDestinationId(draft.receivingFacility)
+        );
+        const events = [...updated.timeline];
+        if (!previous.referralCriteriaSatisfied && draft.referralCriteriaSatisfied) {
+          events.push(
+            createTimelineEvent(
+              record.id,
+              "patient-assessed",
+              "Patient assessment and clinical summary recorded.",
+              currentAccount
+            ),
+            createTimelineEvent(
+              record.id,
+              "criteria-satisfied",
+              "Local referral criteria were marked as satisfied.",
+              currentAccount
+            )
+          );
+        }
+        if (!previous.consentGiven && draft.consentGiven) {
+          events.push(
+            createTimelineEvent(
+              record.id,
+              "consent-obtained",
+              "Patient or representative consent was recorded locally.",
+              currentAccount
+            )
+          );
+        }
+        return { ...updated, timeline: events };
+      })
     }));
   }
 
@@ -144,7 +287,35 @@ export function AppProvider({ children }: PropsWithChildren) {
     const receiving =
       findFacility(activeDraftRecord.receivingOrganizationId) ??
       FACILITIES.find((facility) => facility.id !== currentAccount.organizationId);
-    if (referring && receiving) setDraft(createDemoDraft(referring, receiving));
+    const patient = state.patients.find(
+      (item) => item.id === activeDraftRecord.patientId
+    );
+    if (referring && receiving && patient) {
+      const reset = createDemoDraft(referring, receiving, patient);
+      if (activeDraftRecord.draft.receivingFacility.fhirReference) {
+        reset.receivingFacility = structuredClone(
+          activeDraftRecord.draft.receivingFacility
+        );
+        reset.receivingPractitioner = undefined;
+      }
+      setDraft(reset);
+    }
+  }
+
+  function cancelDraft() {
+    if (!currentAccount || !activeDraftRecord) return;
+    commit((current) => ({
+      ...current,
+      activeDraftIds: Object.fromEntries(
+        Object.entries(current.activeDraftIds).filter(
+          ([accountId]) => accountId !== currentAccount.id
+        )
+      ),
+      referrals: current.referrals.filter(
+        (record) =>
+          record.id !== activeDraftRecord.id || record.status !== "draft"
+      )
+    }));
   }
 
   function saveValidation(summary: ValidationSummary, outcome?: FhirResource) {
@@ -177,8 +348,13 @@ export function AppProvider({ children }: PropsWithChildren) {
     }));
   }
 
-  async function submitCurrentReferral(allowBlocking: boolean): Promise<ReferralRecord> {
-    if (!currentAccount || !activeDraftRecord) throw new Error("No active referral draft.");
+  async function submitCurrentReferral(
+    allowBlocking: boolean
+  ): Promise<ReferralRecord> {
+    if (!currentAccount || !activeDraftRecord) {
+      throw new Error("No active referral draft.");
+    }
+    assertReferralSubmissionReady(activeDraftRecord.draft);
     if (activeDraftRecord.validationSummary.blocking && !allowBlocking) {
       throw new Error("Validation contains blocking issues.");
     }
@@ -196,6 +372,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     const updated: ReferralRecord = {
       ...activeDraftRecord,
       status: "requested",
+      taskStatus: "requested",
       updatedAt: now,
       submittedAt: now,
       transactionResponse: resolved.response,
@@ -210,7 +387,7 @@ export function AppProvider({ children }: PropsWithChildren) {
           "submitted",
           state.settings.demoMode
             ? "Referral submitted to the local Connectathon demo store."
-            : "Referral transaction submitted to the PHeRef CDR.",
+            : "Referral transaction submitted to the PHeReF CDR.",
           currentAccount
         ),
         createTimelineEvent(
@@ -221,6 +398,9 @@ export function AppProvider({ children }: PropsWithChildren) {
         )
       ]
     };
+    const localDestination = FACILITIES.some(
+      (facility) => facility.id === updated.receivingOrganizationId
+    );
     commit((current) => ({
       ...current,
       activeDraftIds: Object.fromEntries(
@@ -231,15 +411,17 @@ export function AppProvider({ children }: PropsWithChildren) {
       referrals: current.referrals.map((record) =>
         record.id === updated.id ? updated : record
       ),
-      notifications: [
-        createNotification(
-          updated.id,
-          updated.receivingOrganizationId,
-          "New referral received",
-          `${updated.patientName} was referred by ${updated.referringOrganizationName}.`
-        ),
-        ...current.notifications
-      ]
+      notifications: localDestination
+        ? [
+            createNotification(
+              updated.id,
+              updated.receivingOrganizationId,
+              "New referral received",
+              `New referral for ${updated.patientName} from ${updated.referringOrganizationName}.`
+            ),
+            ...current.notifications
+          ]
+        : current.notifications
     }));
     return updated;
   }
@@ -250,8 +432,8 @@ export function AppProvider({ children }: PropsWithChildren) {
     note: string,
     forwardingFacilityId?: string
   ): Promise<ReferralRecord> {
-    if (!currentAccount || currentAccount.role !== "receiving_facility_user") {
-      throw new Error("Only receiving-facility users can update referral workflow status.");
+    if (!currentAccount || currentAccount.role !== "facility_user") {
+      throw new Error("A facility user is required to update referral status.");
     }
     const record = state.referrals.find((item) => item.id === referralId);
     if (!record || record.receivingOrganizationId !== currentAccount.organizationId) {
@@ -262,22 +444,20 @@ export function AppProvider({ children }: PropsWithChildren) {
     }
     const taskId = record.resourceReferences.taskReference?.split("/")[1];
     const storedTask = findResource(record.fhirResources, "Task");
-    if (!taskId || !storedTask) throw new Error("The referral does not have a Task resource.");
+    if (!taskId || !storedTask) {
+      throw new Error("The referral does not have a Task resource.");
+    }
 
     try {
       const sourceTask = record.liveSubmission
         ? await readResource(state.settings.pherefBaseUrl, "Task", taskId)
         : storedTask;
-      const effectiveNote =
-        note.trim() ||
-        (transition === "received"
-          ? "Referral received by receiving facility."
-          : transition === "accepted"
-            ? "Referral accepted."
-            : transition === "completed"
-              ? "Referral completed."
-              : note);
-      const updatedTask = applyTaskTransition(sourceTask, transition, effectiveNote);
+      const effectiveNote = note.trim();
+      const updatedTask = applyTaskTransition(
+        sourceTask,
+        transition,
+        effectiveNote
+      );
       const savedTask = record.liveSubmission
         ? await updateResource(
             state.settings.pherefBaseUrl,
@@ -287,6 +467,8 @@ export function AppProvider({ children }: PropsWithChildren) {
           )
         : updatedTask;
       const status = statusFromTask(savedTask);
+      const businessStatus = businessStatusFromTask(savedTask);
+      const careStatus = careStatusFromTransition(transition) ?? record.careStatus;
       const forwardingFacility = forwardingFacilityId
         ? findFacility(forwardingFacilityId)
         : undefined;
@@ -294,6 +476,9 @@ export function AppProvider({ children }: PropsWithChildren) {
       const updated: ReferralRecord = {
         ...record,
         status,
+        taskStatus: String(savedTask.status ?? status),
+        businessStatus,
+        careStatus,
         updatedAt: now,
         fhirResources: record.fhirResources.map((resource) =>
           resource.resourceType === "Task" ? savedTask : resource
@@ -305,9 +490,9 @@ export function AppProvider({ children }: PropsWithChildren) {
           ...record.timeline,
           createTimelineEvent(
             record.id,
-            status,
+            careStatusFromTransition(transition) ?? status,
             transition === "referred-onward" && forwardingFacility
-              ? `Forwarded to ${forwardingFacility.name}. ${effectiveNote}`
+              ? `Referred onward to ${forwardingFacility.name}. ${effectiveNote}`
               : effectiveNote,
             currentAccount
           )
@@ -315,17 +500,19 @@ export function AppProvider({ children }: PropsWithChildren) {
       };
       commit((current) => ({
         ...current,
-        referrals: current.referrals.map((item) => (item.id === updated.id ? updated : item)),
+        referrals: current.referrals.map((item) =>
+          item.id === updated.id ? updated : item
+        ),
         notifications: [
           createNotification(
             updated.id,
             updated.referringOrganizationId,
-            `Referral ${status}`,
-            `${updated.receivingOrganizationName} updated ${updated.patientName}'s referral to ${status}.`
+            `Referral ${careStatus ?? status}`,
+            `${updated.receivingOrganizationName} updated ${updated.patientName}'s referral.`
           ),
           ...current.notifications.map((notification) =>
             notification.referralId === updated.id &&
-            notification.receivingOrganizationId === currentAccount.organizationId
+            notification.targetOrganizationId === currentAccount.organizationId
               ? { ...notification, read: true }
               : notification
           )
@@ -369,6 +556,8 @@ export function AppProvider({ children }: PropsWithChildren) {
     const updated = {
       ...record,
       status,
+      taskStatus: String(task.status ?? status),
+      businessStatus: businessStatusFromTask(task),
       updatedAt: String(task.lastModified ?? new Date().toISOString()),
       fhirResources: record.fhirResources.map((resource) =>
         resource.resourceType === "Task" ? task : resource
@@ -376,7 +565,9 @@ export function AppProvider({ children }: PropsWithChildren) {
     };
     commit((current) => ({
       ...current,
-      referrals: current.referrals.map((item) => (item.id === updated.id ? updated : item))
+      referrals: current.referrals.map((item) =>
+        item.id === updated.id ? updated : item
+      )
     }));
     return updated;
   }
@@ -385,7 +576,9 @@ export function AppProvider({ children }: PropsWithChildren) {
     commit((current) => ({
       ...current,
       notifications: current.notifications.map((notification) =>
-        notification.id === notificationId ? { ...notification, read: true } : notification
+        notification.id === notificationId
+          ? { ...notification, read: true }
+          : notification
       )
     }));
   }
@@ -396,15 +589,32 @@ export function AppProvider({ children }: PropsWithChildren) {
       ...current,
       notifications: current.notifications.map((notification) =>
         notification.referralId === referralId &&
-        notification.receivingOrganizationId === currentAccount.organizationId
+        notification.targetOrganizationId === currentAccount.organizationId
           ? { ...notification, read: true }
           : notification
       )
     }));
   }
 
+  const scopedPatients = useMemo(
+    () =>
+      currentAccount?.role === "admin"
+        ? state.patients
+        : state.patients.filter(
+            (patient) => patient.organizationId === currentAccount?.organizationId
+          ),
+    [state.patients, currentAccount]
+  );
   const scopedReferrals = useMemo(
     () => referralsForAccount(state.referrals, currentAccount),
+    [state.referrals, currentAccount]
+  );
+  const sentReferrals = useMemo(
+    () => sentReferralsForAccount(state.referrals, currentAccount),
+    [state.referrals, currentAccount]
+  );
+  const incomingReferrals = useMemo(
+    () => incomingReferralsForAccount(state.referrals, currentAccount),
     [state.referrals, currentAccount]
   );
   const scopedNotifications = useMemo(
@@ -420,20 +630,28 @@ export function AppProvider({ children }: PropsWithChildren) {
         currentAccount,
         settings: state.settings,
         endpoints: state.settings,
+        patients: state.patients,
+        scopedPatients,
         referrals: state.referrals,
         scopedReferrals,
+        sentReferrals,
+        incomingReferrals,
         notifications: state.notifications,
         scopedNotifications,
-        unreadNotificationCount: scopedNotifications.filter((item) => !item.read).length,
+        unreadNotificationCount: scopedNotifications.filter((item) => !item.read)
+          .length,
         login,
         logout,
         setEndpoints,
         resetEndpoints,
+        savePatient,
+        linkWalkInPatient,
         draft: activeDraftRecord?.draft ?? null,
         activeDraftRecord,
         startNewReferral,
         setDraft,
         resetDraft,
+        cancelDraft,
         saveValidation,
         submitCurrentReferral,
         transitionReferral,

@@ -4,7 +4,9 @@ import { useAppContext } from "../context/useAppContext";
 
 export function Login() {
   const { accounts, currentAccount, login } = useAppContext();
-  const [selectedAccount, setSelectedAccount] = useState(accounts[0]?.id ?? "");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
   const navigate = useNavigate();
   const location = useLocation();
   if (currentAccount) return <Navigate to="/dashboard" replace />;
@@ -12,43 +14,64 @@ export function Login() {
   const destination =
     (location.state as { from?: string } | null)?.from ?? "/dashboard";
 
+  function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setMessage("");
+    try {
+      login(username, password);
+      navigate(destination, { replace: true });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Login failed.");
+    }
+  }
+
   return (
     <main className="login-shell">
       <section className="login-card">
         <p className="eyebrow">June 2026 Philippines FHIR Connectathon</p>
-        <h1>PHeRef Facility Login</h1>
-        <p>Select a mock facility account. No password is required for this local demo.</p>
-        <div className="account-picker">
+        <h1>Local EMR eReferral Mock</h1>
+        <p>Sign in with a synthetic facility account.</p>
+        {message ? <div className="notice danger">{message}</div> : null}
+        <form onSubmit={submit} className="login-form">
+          <label className="field">
+            <span>Username</span>
+            <input
+              autoComplete="username"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Password</span>
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </label>
+          <button type="submit" disabled={!username || !password}>Login</button>
+        </form>
+        <div className="demo-accounts">
+          <span>Demo accounts</span>
           {accounts.map((account) => (
-            <label
-              className={`account-option ${selectedAccount === account.id ? "selected" : ""}`}
+            <button
+              type="button"
+              className="secondary compact"
               key={account.id}
+              onClick={() => {
+                setUsername(account.username);
+                setPassword(account.password);
+                setMessage("");
+              }}
             >
-              <input
-                type="radio"
-                name="demo-account"
-                value={account.id}
-                checked={selectedAccount === account.id}
-                onChange={() => setSelectedAccount(account.id)}
-              />
-              <span>
-                <strong>{account.username}</strong>
-                <small>{account.displayName}</small>
-                <small>{account.organizationName}</small>
-              </span>
-            </label>
+              {account.username}
+            </button>
           ))}
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            login(selectedAccount);
-            navigate(destination, { replace: true });
-          }}
-        >
-          Login to demo
-        </button>
-        <p className="login-note">LocalStorage session · synthetic Connectathon data only</p>
+        <p className="login-note">
+          Password for all accounts: <code>demo123</code>. Synthetic data only.
+        </p>
       </section>
     </main>
   );

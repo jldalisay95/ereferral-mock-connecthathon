@@ -16,12 +16,29 @@ describe("Task transitions", () => {
     ["accepted", "accepted", "accepted"],
     ["rejected", "rejected", "rejected"],
     ["referred-onward", "rejected", "referred-onward"]
-  ] as const)("maps %s to FHIR status %s and business status %s", (transition, status, businessCode) => {
-    const updated = applyTaskTransition(task, transition, "Synthetic reason");
+  ] as const)(
+    "maps %s to FHIR status %s and business status %s",
+    (transition, status, businessCode) => {
+      const updated = applyTaskTransition(task, transition, "Synthetic remarks");
+      expect(updated.status).toBe(status);
+      expect(
+        (updated.businessStatus as { coding: Array<{ code: string }> }).coding[0]
+          .code
+      ).toBe(businessCode);
+    }
+  );
+
+  it.each([
+    ["arrived", "in-progress"],
+    ["admitted", "in-progress"],
+    ["er-observation", "in-progress"],
+    ["other-care", "in-progress"],
+    ["discharged", "completed"]
+  ] as const)("maps local care state %s to Task.status %s", (transition, status) => {
+    const accepted = applyTaskTransition(task, "accepted", "Accepted");
+    const updated = applyTaskTransition(accepted, transition, "Care update");
     expect(updated.status).toBe(status);
-    expect(
-      (updated.businessStatus as { coding: Array<{ code: string }> }).coding[0].code
-    ).toBe(businessCode);
+    expect(updated.businessStatus).toEqual(accepted.businessStatus);
   });
 
   it("preserves businessStatus when completed", () => {
@@ -31,8 +48,9 @@ describe("Task transitions", () => {
     expect(completed.businessStatus).toEqual(accepted.businessStatus);
   });
 
-  it("requires a reason for rejection and onward referral", () => {
-    expect(() => applyTaskTransition(task, "rejected", "")).toThrow(/reason is required/i);
-    expect(() => applyTaskTransition(task, "referred-onward", " ")).toThrow(/reason is required/i);
+  it("requires remarks for every workflow update", () => {
+    expect(() => applyTaskTransition(task, "received", "")).toThrow(
+      /remarks are required/i
+    );
   });
 });

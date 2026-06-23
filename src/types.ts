@@ -9,7 +9,6 @@ export interface CodingInput {
   system: string;
   code: string;
   display: string;
-  manual?: boolean;
 }
 
 export interface PersonInput {
@@ -31,6 +30,7 @@ export interface AddressInput {
   region: string;
   regionCode: string;
   postalCode: string;
+  psgcVersion: string;
 }
 
 export interface OrganizationInput {
@@ -39,6 +39,9 @@ export interface OrganizationInput {
   hcpnName: string;
   phone: string;
   address: AddressInput;
+  source?: "local" | "fhir";
+  fhirReference?: string;
+  fhirServerLabel?: string;
 }
 
 export interface PatientInput {
@@ -52,29 +55,48 @@ export interface PatientInput {
   phone: string;
   address: AddressInput;
   contactName: string;
-  contactRelationship: string;
+  contactRelationship: CodingInput;
   contactPhone: string;
   pwdEnabled: boolean;
   pwdId: string;
-  disability: CodingInput;
+  disabilities: CodingInput[];
   pwdExpirationDate: string;
 }
 
+export type RegistryType = "registered" | "walk-in";
+
+export interface PatientRecord {
+  id: string;
+  organizationId: string;
+  registryType: RegistryType;
+  patient: PatientInput;
+  notes: string;
+  linkedPatientId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type RequestPriority = "routine" | "urgent" | "stat";
+
 export interface ReferralDraft {
   referralId: string;
+  patientRecordId: string;
   authoredOn: string;
+  timeCalled: string;
   referringPractitioner: PersonInput;
-  receivingPractitioner: PersonInput;
+  receivingPractitioner?: PersonInput;
   initiatingFacility: OrganizationInput;
   receivingFacility: OrganizationInput;
   patient: PatientInput;
   referralCategory: CodingInput;
-  serviceType: CodingInput;
+  priority: RequestPriority;
+  requestedService: CodingInput;
+  clinicalReason: CodingInput;
   referralNarrative: string;
+  remarks: string;
   chiefComplaint: string;
   clinicalHistory: string;
   workingImpressionText: string;
-  workingImpression: CodingInput;
   vitals: {
     observedAt: string;
     systolic: number;
@@ -89,6 +111,9 @@ export interface ReferralDraft {
   labTitle: string;
   labConclusion: string;
   labAttachmentBase64: string;
+  referralCriteriaSatisfied: boolean;
+  consentGiven: boolean;
+  consentStatement: string;
   signatureBase64: string;
 }
 
@@ -147,17 +172,25 @@ export interface ReferralAggregate {
   practitionerRoles: FhirResource[];
 }
 
-export type TaskTransition =
+export type ReceivingResponse =
   | "received"
   | "accepted"
   | "rejected"
-  | "referred-onward"
+  | "referred-onward";
+
+export type CareStatus =
+  | "arrived"
+  | "admitted"
+  | "er-observation"
+  | "other-care"
+  | "discharged";
+
+export type TaskTransition =
+  | ReceivingResponse
+  | CareStatus
   | "completed";
 
-export type FacilityRole =
-  | "referring_facility_user"
-  | "receiving_facility_user"
-  | "admin";
+export type FacilityRole = "facility_user" | "admin";
 
 export interface FacilityDefinition {
   id: string;
@@ -170,6 +203,7 @@ export interface FacilityDefinition {
 export interface FacilityAccount {
   id: string;
   username: string;
+  password: string;
   displayName: string;
   role: FacilityRole;
   organizationId: string;
@@ -179,6 +213,11 @@ export interface FacilityAccount {
 
 export interface AppSession {
   userId: string;
+  username: string;
+  displayName: string;
+  role: FacilityRole;
+  facilityId: string;
+  facilityName: string;
   loggedInAt: string;
 }
 
@@ -194,12 +233,20 @@ export type ReferralStatus =
   | "in-progress"
   | "completed"
   | "cancelled"
+  | "failed"
   | "error";
+
+export type TimelineStatus =
+  | ReferralStatus
+  | "patient-assessed"
+  | "criteria-satisfied"
+  | "consent-obtained"
+  | CareStatus;
 
 export interface ReferralTimelineEvent {
   id: string;
   referralId: string;
-  status: ReferralStatus;
+  status: TimelineStatus;
   label: string;
   note: string;
   actorOrganizationId: string;
@@ -210,7 +257,7 @@ export interface ReferralTimelineEvent {
 export interface Notification {
   id: string;
   referralId: string;
-  receivingOrganizationId: string;
+  targetOrganizationId: string;
   title: string;
   message: string;
   read: boolean;
@@ -227,13 +274,20 @@ export interface ReferralReferences {
 export interface ReferralRecord {
   id: string;
   localReferralId: string;
+  patientId: string;
   patientName: string;
   referringOrganizationId: string;
   referringOrganizationName: string;
   receivingOrganizationId: string;
   receivingOrganizationName: string;
   reason: string;
+  priority: RequestPriority;
+  category: string;
+  consentGiven: boolean;
   status: ReferralStatus;
+  taskStatus: string;
+  businessStatus?: ReceivingResponse;
+  careStatus?: CareStatus;
   createdAt: string;
   updatedAt: string;
   submittedAt?: string;
@@ -253,14 +307,15 @@ export interface ReferralRecord {
 }
 
 export interface AppSettings extends EndpointConfig {
-  version: 2;
+  version: 3;
 }
 
 export interface PersistedAppState {
-  version: 2;
+  version: 3;
   session: AppSession | null;
   settings: AppSettings;
   activeDraftIds: Record<string, string>;
+  patients: PatientRecord[];
   referrals: ReferralRecord[];
   notifications: Notification[];
 }

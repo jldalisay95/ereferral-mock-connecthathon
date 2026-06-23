@@ -14,7 +14,11 @@ export function TerminologyCheck() {
   const { endpoints } = useAppContext();
   const [results, setResults] = useState<Record<string, TerminologyState>>({});
 
-  async function expand(key: string, canonical: string) {
+  async function expand(
+    key: string,
+    canonical: string,
+    fallbackOptions: readonly CodingInput[]
+  ) {
     setResults((current) => ({ ...current, [key]: { status: "loading", codes: [] } }));
     try {
       const result = await expandValueSet(endpoints.terminologyBaseUrl, canonical);
@@ -27,7 +31,7 @@ export function TerminologyCheck() {
         ...current,
         [key]: {
           status: "error",
-          codes: [],
+          codes: fallbackOptions.map((code) => ({ ...code })),
           error: error instanceof Error ? error.message : "Expansion failed."
         }
       }));
@@ -35,7 +39,11 @@ export function TerminologyCheck() {
   }
 
   async function expandAll() {
-    await Promise.all(VALUE_SETS.map((item) => expand(item.key, item.canonical)));
+    await Promise.all(
+      VALUE_SETS.map((item) =>
+        expand(item.key, item.canonical, item.fallbackOptions)
+      )
+    );
   }
 
   return (
@@ -59,14 +67,15 @@ export function TerminologyCheck() {
                 <h3>{item.label}</h3>
                 <code>{item.canonical}</code>
               </div>
-              <button type="button" className="secondary" onClick={() => expand(item.key, item.canonical)}>
-                {result.status === "loading" ? "Loading…" : "Expand"}
+              <button type="button" className="secondary" onClick={() => expand(item.key, item.canonical, item.fallbackOptions)}>
+                {result.status === "loading" ? "Loading..." : "Expand"}
               </button>
             </div>
             {result.status === "error" ? (
               <div className="notice warning">
-                <strong>Non-blocking terminology warning.</strong> {result.error} Manual code entry
-                remains available in the referral form and is labeled as manual.
+                <strong>Terminology server unavailable for this expansion.</strong>{" "}
+                {result.error} The application continues to use its bundled IG
+                value set options; manual code entry is not enabled.
               </div>
             ) : null}
             {result.codes.length ? (

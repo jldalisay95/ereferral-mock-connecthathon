@@ -1,12 +1,14 @@
 import { buildReferralTransactionBundle } from "../fhir/builders";
 import { emptyValidationSummary } from "../fhir/operationOutcome";
+import { patientDisplayName } from "../data/patients";
 import type {
   FacilityAccount,
   Notification,
   ReferralDraft,
   ReferralRecord,
   ReferralStatus,
-  ReferralTimelineEvent
+  ReferralTimelineEvent,
+  TimelineStatus
 } from "../types";
 
 export const REFERRAL_STATUS_LABELS: Record<ReferralStatus, string> = {
@@ -17,16 +19,29 @@ export const REFERRAL_STATUS_LABELS: Record<ReferralStatus, string> = {
   received: "Received",
   accepted: "Accepted",
   rejected: "Rejected",
-  "referred-onward": "Forwarded / Referred",
-  "in-progress": "In Progress",
+  "referred-onward": "Referred onward",
+  "in-progress": "In progress",
   completed: "Completed",
   cancelled: "Cancelled",
+  failed: "Failed",
   error: "Error"
+};
+
+export const TIMELINE_STATUS_LABELS: Record<TimelineStatus, string> = {
+  ...REFERRAL_STATUS_LABELS,
+  "patient-assessed": "Patient assessed",
+  "criteria-satisfied": "Referral criteria satisfied",
+  "consent-obtained": "Consent obtained",
+  arrived: "Arrived",
+  admitted: "Admitted",
+  "er-observation": "ER observation",
+  "other-care": "Other care",
+  discharged: "Discharged"
 };
 
 export function createTimelineEvent(
   referralId: string,
-  status: ReferralStatus,
+  status: TimelineStatus,
   note: string,
   account: FacilityAccount
 ): ReferralTimelineEvent {
@@ -34,10 +49,10 @@ export function createTimelineEvent(
     id: crypto.randomUUID(),
     referralId,
     status,
-    label: REFERRAL_STATUS_LABELS[status],
+    label: TIMELINE_STATUS_LABELS[status],
     note,
     actorOrganizationId: account.organizationId,
-    actorName: account.displayName,
+    actorName: `${account.displayName} - ${account.organizationName}`,
     timestamp: new Date().toISOString()
   };
 }
@@ -52,13 +67,18 @@ export function createDraftRecord(
   return {
     id,
     localReferralId: draft.referralId,
-    patientName: `${draft.patient.given} ${draft.patient.family}`.trim(),
+    patientId: draft.patientRecordId,
+    patientName: patientDisplayName(draft.patient),
     referringOrganizationId: account.organizationId,
     referringOrganizationName: account.organizationName,
     receivingOrganizationId,
     receivingOrganizationName: draft.receivingFacility.name,
-    reason: draft.serviceType.display,
+    reason: draft.requestedService.display,
+    priority: draft.priority,
+    category: draft.referralCategory.display,
+    consentGiven: draft.consentGiven,
     status: "draft",
+    taskStatus: "draft",
     createdAt: now,
     updatedAt: now,
     validationSummary: emptyValidationSummary(),
@@ -66,7 +86,9 @@ export function createDraftRecord(
     fhirResources: [],
     resourceReferences: {},
     draft,
-    timeline: [createTimelineEvent(id, "draft", "Synthetic referral draft created.", account)],
+    timeline: [
+      createTimelineEvent(id, "draft", "Local referral draft created.", account)
+    ],
     liveSubmission: false
   };
 }
@@ -79,10 +101,14 @@ export function updateDraftRecord(
   return {
     ...record,
     localReferralId: draft.referralId,
-    patientName: `${draft.patient.given} ${draft.patient.family}`.trim(),
+    patientId: draft.patientRecordId,
+    patientName: patientDisplayName(draft.patient),
     receivingOrganizationId,
     receivingOrganizationName: draft.receivingFacility.name,
-    reason: draft.serviceType.display,
+    reason: draft.requestedService.display,
+    priority: draft.priority,
+    category: draft.referralCategory.display,
+    consentGiven: draft.consentGiven,
     updatedAt: new Date().toISOString(),
     draft,
     fhirBundle: buildReferralTransactionBundle(draft)
@@ -95,11 +121,33 @@ export function referralsForAccount(
 ): ReferralRecord[] {
   if (!account) return [];
   if (account.role === "admin") return referrals;
-  return referrals.filter((referral) =>
-    account.role === "referring_facility_user"
-      ? referral.referringOrganizationId === account.organizationId
-      : referral.receivingOrganizationId === account.organizationId ||
-        referral.forwardedToOrganizationId === account.organizationId
+  return referrals.filter(
+    (referral) =>
+      referral.referringOrganizationId === account.organizationId ||
+      referral.receivingOrganizationId === account.organizationId ||
+      referral.forwardedToOrganizationId === account.organizationId
+  );
+}
+
+export function sentReferralsForAccount(
+  referrals: ReferralRecord[],
+  account: FacilityAccount | null
+) {
+  if (!account) return [];
+  if (account.role === "admin") return referrals;
+  return referrals.filter(
+    (referral) => referral.referringOrganizationId === account.organizationId
+  );
+}
+
+export function incomingReferralsForAccount(
+  referrals: ReferralRecord[],
+  account: FacilityAccount | null
+) {
+  if (!account) return [];
+  if (account.role === "admin") return referrals;
+  return referrals.filter(
+    (referral) => referral.receivingOrganizationId === account.organizationId
   );
 }
 
@@ -110,6 +158,6 @@ export function notificationsForAccount(
   if (!account) return [];
   if (account.role === "admin") return notifications;
   return notifications.filter(
-    (notification) => notification.receivingOrganizationId === account.organizationId
+    (notification) => notification.targetOrganizationId === account.organizationId
   );
 }

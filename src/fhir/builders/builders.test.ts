@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { IDENTIFIER_SYSTEMS, PROFILES } from "../../config/fhir";
+import {
+  IDENTIFIER_SYSTEMS,
+  PWD_DISABILITY_OPTIONS,
+  PROFILES,
+  PSGC_SYSTEM,
+  PSGC_VERSION
+} from "../../config/fhir";
 import { createDemoDraft } from "../../data/demo";
+import { FACILITIES } from "../../data/facilities";
+import { DEMO_PATIENTS } from "../../data/patients";
 import {
   buildBloodPressureObservation,
   buildDiagnosticReport,
@@ -27,6 +35,10 @@ describe("PHeRef builders", () => {
     expect(buildPatient(draft).extension).toBeUndefined();
     draft.patient.pwdEnabled = true;
     draft.patient.pwdId = "SYN-PWD-1";
+    draft.patient.disabilities = [
+      { ...PWD_DISABILITY_OPTIONS[0] },
+      { ...PWD_DISABILITY_OPTIONS[1] }
+    ];
     draft.patient.pwdExpirationDate = "2028-01-01";
     const patient = buildPatient(draft);
     expect(patient.extension).toEqual([
@@ -34,7 +46,22 @@ describe("PHeRef builders", () => {
         url: PROFILES.pwdDisability,
         extension: expect.arrayContaining([
           { url: "pwdId", valueString: "SYN-PWD-1" },
-          expect.objectContaining({ url: "disabilityType" }),
+          expect.objectContaining({
+            url: "disabilityType",
+            valueCodeableConcept: expect.objectContaining({
+              coding: [
+                expect.objectContaining({ code: PWD_DISABILITY_OPTIONS[0].code })
+              ]
+            })
+          }),
+          expect.objectContaining({
+            url: "disabilityType",
+            valueCodeableConcept: expect.objectContaining({
+              coding: [
+                expect.objectContaining({ code: PWD_DISABILITY_OPTIONS[1].code })
+              ]
+            })
+          }),
           { url: "idExpirationDate", valueDate: "2028-01-01" }
         ])
       })
@@ -71,9 +98,27 @@ describe("PHeRef builders", () => {
   });
 
   it("uses the current Connectathon PSGC canonical", () => {
-    expect(JSON.stringify(buildPatient(createDemoDraft()))).toContain(
-      "https://fhir.doh.gov.ph/phcore/CodeSystem/PSGC"
-    );
+    const serialized = JSON.stringify(buildPatient(createDemoDraft()));
+    expect(serialized).toContain(PSGC_SYSTEM);
+    expect(serialized).toContain(PSGC_VERSION);
+  });
+
+  it("uses valid current South Cotabato city and barangay PSGC codes", () => {
+    const draft = createDemoDraft(FACILITIES[2], FACILITIES[0], DEMO_PATIENTS[2]);
+    const bundle = buildReferralTransactionBundle(draft);
+    const serialized = JSON.stringify(bundle);
+    expect(serialized).toContain("1206306000");
+    expect(serialized).toContain("1206306018");
+    expect(serialized).not.toContain("1206305000");
+    expect(serialized).not.toContain("1206305012");
+  });
+
+  it("omits empty address primitives", () => {
+    const draft = createDemoDraft();
+    draft.patient.address.postalCode = "";
+    const patient = buildPatient(draft);
+    const address = (patient.address as Array<Record<string, unknown>>)[0];
+    expect(address).not.toHaveProperty("postalCode");
   });
 
   it("omits an unconfirmed profile from DiagnosticReport", () => {
@@ -107,7 +152,125 @@ describe("PHeRef builders", () => {
       (entry) => (entry.resource as { resourceType: string }).resourceType === "ServiceRequest"
     )?.resource as Record<string, unknown>;
     expect(serviceRequest.category).toBeDefined();
+    expect(serviceRequest.code).toBeDefined();
     expect(serviceRequest.reasonCode).toBeDefined();
-    expect(serviceRequest.priority).toBeUndefined();
+    expect(serviceRequest.priority).toBe("urgent");
+    expect(serviceRequest.occurrenceDateTime).toBeDefined();
+    expect(serviceRequest.relevantHistory).toBeDefined();
+    expect(
+      (
+        serviceRequest.category as Array<{
+          coding: Array<{ code: string; display: string }>;
+          text: string;
+        }>
+      )[0].coding[0].code
+    ).toBe("73770003");
+    expect(
+      (
+        serviceRequest.category as Array<{
+          coding: Array<{ display: string }>;
+          text: string;
+        }>
+      )[0]
+    ).toEqual(
+      expect.objectContaining({
+        text: "Emergency",
+        coding: [
+          expect.objectContaining({
+            display: "Hospital-based outpatient emergency care center"
+          })
+        ]
+      })
+    );
+    expect(
+      (
+        serviceRequest.reasonCode as Array<{
+          coding: Array<{ code: string }>;
+        }>
+      )[0].coding[0].code
+    ).toBe("11429006");
+    expect(
+      entries.every((entry) =>
+        (entry.resource as { text?: { div?: string } }).text?.div?.includes(
+          'xmlns="http://www.w3.org/1999/xhtml"'
+        )
+      )
+    ).toBe(true);
+  });
+
+  it("uses POST for a Patient without a reusable identifier", () => {
+    const draft = createDemoDraft();
+    draft.patient.philSysId = "";
+    draft.patient.philHealthId = "";
+    const bundle = buildReferralTransactionBundle(draft);
+    const patientEntry = (
+      bundle.entry as Array<{
+        resource: { resourceType: string };
+        request: { method: string; url: string };
+      }>
+    ).find((entry) => entry.resource.resourceType === "Patient");
+    expect(patientEntry?.request).toEqual({ method: "POST", url: "Patient" });
+  });
+
+  it("uses PhilHealth conditional PUT when PhilSys is unavailable", () => {
+    const draft = createDemoDraft();
+    draft.patient.philSysId = "";
+    const bundle = buildReferralTransactionBundle(draft);
+    const patientEntry = (
+      bundle.entry as Array<{
+        resource: { resourceType: string };
+        request: { method: string; url: string };
+      }>
+    ).find((entry) => entry.resource.resourceType === "Patient");
+    expect(patientEntry?.request.method).toBe("PUT");
+    expect(patientEntry?.request.url).toContain(IDENTIFIER_SYSTEMS.philHealth);
+  });
+
+  it("references a server Organization without fabricating receiving actors", () => {
+    const draft = createDemoDraft();
+    draft.receivingFacility = {
+      ...draft.receivingFacility,
+      name: "FHIR Directory Hospital",
+      nhfrCode: "",
+      source: "fhir",
+      fhirReference:
+        "https://cdr.pheref.fhirlab.net/fhir/Organization/server-hospital",
+      fhirServerLabel: "PHeReF CDR"
+    };
+    draft.receivingPractitioner = undefined;
+    const bundle = buildReferralTransactionBundle(draft);
+    const entries = bundle.entry as Array<{
+      fullUrl: string;
+      resource: Record<string, unknown>;
+      request: { method: string; url: string };
+    }>;
+    expect(entries).toHaveLength(18);
+    expect(
+      entries.filter(
+        (entry) => entry.resource.resourceType === "Practitioner"
+      )
+    ).toHaveLength(1);
+    expect(
+      entries.filter(
+        (entry) => entry.resource.resourceType === "PractitionerRole"
+      )
+    ).toHaveLength(1);
+    expect(
+      entries.filter(
+        (entry) => entry.resource.resourceType === "Organization"
+      )
+    ).toHaveLength(1);
+    const serviceRequest = entries.find(
+      (entry) => entry.resource.resourceType === "ServiceRequest"
+    )?.resource;
+    const task = entries.find(
+      (entry) => entry.resource.resourceType === "Task"
+    )?.resource;
+    expect(JSON.stringify(serviceRequest)).toContain(
+      draft.receivingFacility.fhirReference
+    );
+    expect(JSON.stringify(task)).toContain(
+      draft.receivingFacility.fhirReference
+    );
   });
 });

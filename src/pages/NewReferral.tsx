@@ -1,8 +1,18 @@
-import { useEffect } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { CodingSelect } from "../components/CodingSelect";
 import { FormField, SelectInput, TextInput } from "../components/FormField";
+import {
+  CLINICAL_REASON_OPTIONS,
+  REFERRAL_CATEGORY_OPTIONS,
+  REFERRAL_PRIORITY_OPTIONS,
+  REQUESTED_SERVICE_OPTIONS
+} from "../config/fhir";
 import { useAppContext } from "../context/useAppContext";
-import type { ReferralDraft } from "../types";
+import { patientDisplayName } from "../data/patients";
+import { searchOrganizationDirectory } from "../services/organizationDirectory";
+import { searchPatients } from "../services/patientRegistry";
+import type { OrganizationInput, ReferralDraft } from "../types";
 
 type Section = keyof ReferralDraft;
 
@@ -11,252 +21,564 @@ export function NewReferral() {
     draft,
     setDraft,
     resetDraft,
+    cancelDraft,
     startNewReferral,
     currentAccount,
-    facilities
+    facilities,
+    scopedPatients,
+    endpoints
   } = useAppContext();
+  const [step, setStep] = useState(draft ? 2 : 1);
+  const [patientQuery, setPatientQuery] = useState("");
+  const [organizationQuery, setOrganizationQuery] = useState("");
+  const [organizationResults, setOrganizationResults] = useState<
+    OrganizationInput[]
+  >([]);
+  const [organizationSearchStatus, setOrganizationSearchStatus] = useState<
+    "idle" | "loading" | "error"
+  >("idle");
 
-  useEffect(() => {
-    if (!draft) startNewReferral();
-  }, [draft, startNewReferral]);
+  const patientResults = useMemo(
+    () =>
+      patientQuery.trim()
+        ? scopedPatients.filter((record) => {
+            const value = patientQuery.trim().toLowerCase();
+            return [
+              record.patient.given,
+              record.patient.family,
+              record.patient.philSysId,
+              record.patient.philHealthId
+            ].some((field) => field.toLowerCase().includes(value));
+          })
+        : searchPatients(scopedPatients, {}),
+    [scopedPatients, patientQuery]
+  );
 
-  if (!draft || !currentAccount) {
-    return <section className="card"><p>Preparing a synthetic referral draft…</p></section>;
+  if (!currentAccount) return null;
+
+  function selectPatient(patientId: string) {
+    startNewReferral(patientId);
+    setStep(2);
   }
+
+  if (!draft) {
+    return (
+      <div className="page-stack">
+        <WorkflowSteps current={1} />
+        <section className="card">
+          <p className="eyebrow">Step 1</p>
+          <h2>Search patient</h2>
+          <div className="search-row">
+            <input
+              value={patientQuery}
+              onChange={(event) => setPatientQuery(event.target.value)}
+              placeholder="Name, PhilSys ID, or PhilHealth ID"
+              aria-label="Patient search"
+            />
+            <Link className="button secondary" to="/patients">Open Patient Registry</Link>
+          </div>
+          <div className="result-list">
+            {patientResults.map((record) => (
+              <article className="result-card" key={record.id}>
+                <div>
+                  <strong>{patientDisplayName(record.patient)}</strong>
+                  <span>
+                    {record.patient.birthDate || "Birth date not recorded"} - {record.registryType}
+                  </span>
+                  <span>
+                    {record.patient.philSysId || record.patient.philHealthId || "Temporary identity"}
+                  </span>
+                </div>
+                <button type="button" onClick={() => selectPatient(record.id)}>
+                  Generate referral
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   const currentDraft = draft;
 
   function updateSection<K extends Section>(section: K, value: ReferralDraft[K]) {
     setDraft({ ...currentDraft, [section]: value });
   }
 
-  const updatePatient = (key: keyof ReferralDraft["patient"], value: unknown) =>
-    updateSection("patient", { ...currentDraft.patient, [key]: value } as ReferralDraft["patient"]);
-  const updateVitals = (key: keyof ReferralDraft["vitals"], value: string | number) =>
-    updateSection("vitals", { ...currentDraft.vitals, [key]: value });
+  const updateVitals = (
+    key: keyof ReferralDraft["vitals"],
+    value: string | number
+  ) => updateSection("vitals", { ...currentDraft.vitals, [key]: value });
 
   return (
     <div className="page-stack">
-      <section className="card">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Use Case 1</p>
-            <h2>New synthetic eReferral</h2>
-            <p>Changes are saved automatically in this browser.</p>
+      <WorkflowSteps current={step} />
+
+      {step === 2 ? (
+        <section className="card">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Step 2</p>
+              <h2>Assess and prepare referral</h2>
+              <p>{patientDisplayName(draft.patient)}</p>
+            </div>
+            <button type="button" className="secondary" onClick={resetDraft}>
+              Reload synthetic case
+            </button>
           </div>
-          <button type="button" className="secondary" onClick={resetDraft}>Reload demo case</button>
-        </div>
-      </section>
+          <div className="form-grid">
+            <FormField label="Chief complaint">
+              <textarea
+                value={draft.chiefComplaint}
+                onChange={(event) =>
+                  updateSection("chiefComplaint", event.target.value)
+                }
+              />
+            </FormField>
+            <FormField label="Clinical history">
+              <textarea
+                value={draft.clinicalHistory}
+                onChange={(event) =>
+                  updateSection("clinicalHistory", event.target.value)
+                }
+              />
+            </FormField>
+            <FormField label="Working impression">
+              <TextInput
+                value={draft.workingImpressionText}
+                onChange={(event) =>
+                  updateSection("workingImpressionText", event.target.value)
+                }
+              />
+            </FormField>
+            <CodingSelect
+              label="Coded working impression"
+              value={draft.clinicalReason}
+              options={CLINICAL_REASON_OPTIONS}
+              onChange={(value) => updateSection("clinicalReason", value)}
+              hint="Uses the PHeReF clinical reason value set for the referenced Condition."
+            />
+          </div>
+          <div className="form-grid three">
+            <FormField label="Observed at">
+              <TextInput
+                type="datetime-local"
+                value={draft.vitals.observedAt}
+                onChange={(event) => updateVitals("observedAt", event.target.value)}
+              />
+            </FormField>
+            {([
+              ["systolic", "Systolic (mmHg)"],
+              ["diastolic", "Diastolic (mmHg)"],
+              ["heartRate", "Heart rate (/min)"],
+              ["respiratoryRate", "Respiratory rate (/min)"],
+              ["oxygenSaturation", "Oxygen saturation (%)"],
+              ["temperature", "Temperature (Cel)"],
+              ["weight", "Weight (kg)"]
+            ] as const).map(([key, label]) => (
+              <FormField label={label} key={key}>
+                <TextInput
+                  type="number"
+                  step="0.1"
+                  value={draft.vitals[key]}
+                  onChange={(event) => updateVitals(key, Number(event.target.value))}
+                />
+              </FormField>
+            ))}
+          </div>
+          <FormField label="Treatment given">
+            <textarea
+              value={draft.treatment}
+              onChange={(event) => updateSection("treatment", event.target.value)}
+            />
+          </FormField>
+          <div className="form-grid">
+            <FormField label="Laboratory attachment title">
+              <TextInput
+                value={draft.labTitle}
+                onChange={(event) => updateSection("labTitle", event.target.value)}
+              />
+            </FormField>
+            <FormField label="Laboratory conclusion">
+              <TextInput
+                value={draft.labConclusion}
+                onChange={(event) =>
+                  updateSection("labConclusion", event.target.value)
+                }
+              />
+            </FormField>
+          </div>
+          <label className="decision-row">
+            <input
+              type="checkbox"
+              checked={draft.referralCriteriaSatisfied}
+              onChange={(event) =>
+                updateSection("referralCriteriaSatisfied", event.target.checked)
+              }
+            />
+            <span>
+              <strong>Referral criteria satisfied?</strong>
+              <small>This is a local clinical decision and is not sent as a new FHIR profile.</small>
+            </span>
+          </label>
+          <div className="button-row">
+            {!draft.referralCriteriaSatisfied ? (
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  cancelDraft();
+                  setStep(1);
+                }}
+              >
+                Cancel without eReferral
+              </button>
+            ) : (
+              <button type="button" onClick={() => setStep(3)}>
+                Continue to consent
+              </button>
+            )}
+          </div>
+        </section>
+      ) : null}
 
-      <PersonSection
-        title="Referring practitioner"
-        person={draft.referringPractitioner}
-        onChange={(value) => updateSection("referringPractitioner", value)}
-      />
-      <PersonSection
-        title="Care navigator / receiving practitioner"
-        person={draft.receivingPractitioner}
-        onChange={(value) => updateSection("receivingPractitioner", value)}
-      />
-      <section className="card">
-        <p className="eyebrow">Facility context</p>
-        <h2>Initiating facility</h2>
-        <div className="summary-grid">
-          <div><span>Facility</span><strong>{draft.initiatingFacility.name}</strong></div>
-          <div><span>NHFR code</span><strong>{draft.initiatingFacility.nhfrCode}</strong></div>
-          <div><span>HCPN</span><strong>{draft.initiatingFacility.hcpnName}</strong></div>
-          <div><span>Contact</span><strong>{draft.initiatingFacility.phone}</strong></div>
-        </div>
-        <p className="field-note">Auto-populated and locked from the logged-in facility account.</p>
-      </section>
-      <section className="card">
-        <p className="eyebrow">Destination</p>
-        <h2>Receiving facility</h2>
-        <FormField label="Select receiving facility">
-          <SelectInput
-            value={
-              facilities.find(
-                (facility) =>
-                  facility.organization.nhfrCode === draft.receivingFacility.nhfrCode
-              )?.id ?? ""
-            }
-            onChange={(event) => {
-              const facility = facilities.find((item) => item.id === event.target.value);
-              if (!facility) return;
-              setDraft({
-                ...draft,
-                receivingFacility: structuredClone(facility.organization),
-                receivingPractitioner: structuredClone(facility.practitioner)
-              });
-            }}
-          >
-            {facilities
-              .filter((facility) => facility.id !== currentAccount.organizationId)
-              .map((facility) => (
-                <option value={facility.id} key={facility.id}>{facility.name}</option>
-              ))}
-          </SelectInput>
-        </FormField>
-        <div className="summary-grid">
-          <div><span>NHFR code</span><strong>{draft.receivingFacility.nhfrCode}</strong></div>
-          <div><span>HCPN</span><strong>{draft.receivingFacility.hcpnName}</strong></div>
-          <div><span>Contact</span><strong>{draft.receivingFacility.phone}</strong></div>
-          <div><span>Address</span><strong>{draft.receivingFacility.address.line}</strong></div>
-        </div>
-      </section>
+      {step === 3 ? (
+        <section className="card">
+          <p className="eyebrow">Step 3</p>
+          <h2>Discuss referral and record consent</h2>
+          <div className="notice">
+            Consent is retained as local workflow metadata because PHeReF v0.1
+            does not define a formal referral Consent profile.
+          </div>
+          <label className="decision-row">
+            <input
+              type="checkbox"
+              checked={draft.consentGiven}
+              onChange={(event) =>
+                updateSection("consentGiven", event.target.checked)
+              }
+            />
+            <span>
+              <strong>{draft.consentStatement}</strong>
+              <small>Required before this demo can submit the referral.</small>
+            </span>
+          </label>
+          <div className="button-row">
+            <button type="button" className="secondary" onClick={() => setStep(2)}>
+              Back
+            </button>
+            <button
+              type="button"
+              disabled={!draft.consentGiven}
+              onClick={() => setStep(4)}
+            >
+              Continue to destination
+            </button>
+          </div>
+        </section>
+      ) : null}
 
-      <section className="card">
-        <p className="eyebrow">Patient</p>
-        <h2>Demographics and identifiers</h2>
-        <div className="form-grid three">
-          <FormField label="Given name"><TextInput value={draft.patient.given} onChange={(event) => updatePatient("given", event.target.value)} /></FormField>
-          <FormField label="Middle name"><TextInput value={draft.patient.middle} onChange={(event) => updatePatient("middle", event.target.value)} /></FormField>
-          <FormField label="Family name"><TextInput value={draft.patient.family} onChange={(event) => updatePatient("family", event.target.value)} /></FormField>
-          <FormField label="Administrative gender">
-            <SelectInput value={draft.patient.gender} onChange={(event) => updatePatient("gender", event.target.value)}>
-              <option value="female">Female</option><option value="male">Male</option><option value="other">Other</option><option value="unknown">Unknown</option>
+      {step === 4 ? (
+        <section className="card">
+          <p className="eyebrow">Step 4</p>
+          <h2>Select receiving facility</h2>
+          <div className="summary-grid">
+            <div>
+              <span>Initiating facility</span>
+              <strong>{draft.initiatingFacility.name}</strong>
+            </div>
+            <div>
+              <span>NHFR code</span>
+              <strong>{draft.initiatingFacility.nhfrCode}</strong>
+            </div>
+          </div>
+          <FormField label="Receiving facility">
+            <SelectInput
+              value={
+                facilities.find(
+                  (facility) =>
+                    facility.organization.nhfrCode ===
+                    draft.receivingFacility.nhfrCode
+                )?.id ?? ""
+              }
+              onChange={(event) => {
+                const facility = facilities.find(
+                  (item) => item.id === event.target.value
+                );
+                if (!facility) return;
+                setDraft({
+                  ...draft,
+                  receivingFacility: structuredClone(facility.organization),
+                  receivingPractitioner: structuredClone(facility.practitioner)
+                });
+              }}
+            >
+              {draft.receivingFacility.fhirReference ? (
+                <option value="">
+                  External: {draft.receivingFacility.name}
+                </option>
+              ) : null}
+              {facilities
+                .filter(
+                  (facility) => facility.id !== currentAccount.organizationId
+                )
+                .map((facility) => (
+                  <option value={facility.id} key={facility.id}>
+                    {facility.name}
+                  </option>
+                ))}
             </SelectInput>
           </FormField>
-          <FormField label="Birth date"><TextInput type="date" value={draft.patient.birthDate} onChange={(event) => updatePatient("birthDate", event.target.value)} /></FormField>
-          <FormField label="Computed age" hint="Displayed only; not stored in FHIR.">
-            <TextInput readOnly value={Math.max(0, new Date().getFullYear() - new Date(draft.patient.birthDate).getFullYear())} />
-          </FormField>
-          <FormField label="PhilSys ID"><TextInput value={draft.patient.philSysId} onChange={(event) => updatePatient("philSysId", event.target.value)} /></FormField>
-          <FormField label="PhilHealth ID"><TextInput value={draft.patient.philHealthId} onChange={(event) => updatePatient("philHealthId", event.target.value)} /></FormField>
-          <FormField label="Mobile number"><TextInput value={draft.patient.phone} onChange={(event) => updatePatient("phone", event.target.value)} /></FormField>
-          <FormField label="Next of kin name"><TextInput value={draft.patient.contactName} onChange={(event) => updatePatient("contactName", event.target.value)} /></FormField>
-          <FormField label="Relationship code"><TextInput value={draft.patient.contactRelationship} onChange={(event) => updatePatient("contactRelationship", event.target.value)} /></FormField>
-          <FormField label="Next of kin phone"><TextInput value={draft.patient.contactPhone} onChange={(event) => updatePatient("contactPhone", event.target.value)} /></FormField>
-        </div>
-        <AddressFields
-          address={draft.patient.address}
-          onChange={(address) => updatePatient("address", address)}
-        />
-        <label className="check-row">
-          <input type="checkbox" checked={draft.patient.pwdEnabled} onChange={(event) => updatePatient("pwdEnabled", event.target.checked)} />
-          Include PWD disability registration
-        </label>
-        {draft.patient.pwdEnabled ? (
-          <div className="form-grid three">
-            <FormField label="PWD ID"><TextInput value={draft.patient.pwdId} onChange={(event) => updatePatient("pwdId", event.target.value)} /></FormField>
-            <FormField label="Disability code"><TextInput value={draft.patient.disability.code} onChange={(event) => updatePatient("disability", { ...draft.patient.disability, code: event.target.value, manual: true })} /></FormField>
-            <FormField label="Disability display" hint="Manual fallback is labeled because the published expansion currently returns 404."><TextInput value={draft.patient.disability.display} onChange={(event) => updatePatient("disability", { ...draft.patient.disability, display: event.target.value, manual: true })} /></FormField>
-            <FormField label="PWD ID expiration"><TextInput type="date" value={draft.patient.pwdExpirationDate} onChange={(event) => updatePatient("pwdExpirationDate", event.target.value)} /></FormField>
+          <div className="directory-search">
+            <div>
+              <h3>FHIR Organization directory</h3>
+              <p>
+                Search Organizations available on the configured PHeReF and PH
+                Core FHIR servers.
+              </p>
+            </div>
+            <div className="search-row">
+              <TextInput
+                value={organizationQuery}
+                onChange={(event) => setOrganizationQuery(event.target.value)}
+                placeholder="Organization name or identifier"
+                aria-label="FHIR Organization search"
+              />
+              <button
+                type="button"
+                className="secondary"
+                disabled={
+                  organizationQuery.trim().length < 2 ||
+                  organizationSearchStatus === "loading"
+                }
+                onClick={async () => {
+                  setOrganizationSearchStatus("loading");
+                  try {
+                    setOrganizationResults(
+                      await searchOrganizationDirectory(
+                        endpoints,
+                        organizationQuery
+                      )
+                    );
+                    setOrganizationSearchStatus("idle");
+                  } catch {
+                    setOrganizationSearchStatus("error");
+                  }
+                }}
+              >
+                {organizationSearchStatus === "loading"
+                  ? "Searching..."
+                  : "Search FHIR servers"}
+              </button>
+            </div>
+            {organizationSearchStatus === "error" ? (
+              <div className="notice warning">
+                Organization search could not reach the configured FHIR servers.
+              </div>
+            ) : null}
+            {organizationResults.length ? (
+              <div className="result-list">
+                {organizationResults.map((organization) => (
+                  <article
+                    className="result-card"
+                    key={organization.fhirReference}
+                  >
+                    <div>
+                      <strong>{organization.name}</strong>
+                      <span>
+                        {organization.fhirServerLabel}
+                        {organization.nhfrCode
+                          ? ` - NHFR ${organization.nhfrCode}`
+                          : " - no NHFR identifier returned"}
+                      </span>
+                      <span>{organization.fhirReference}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() =>
+                        setDraft({
+                          ...draft,
+                          receivingFacility: structuredClone(organization),
+                          receivingPractitioner: undefined
+                        })
+                      }
+                    >
+                      Select Organization
+                    </button>
+                  </article>
+                ))}
+              </div>
+            ) : null}
           </div>
-        ) : null}
-      </section>
+          <div className="summary-grid">
+            <div><span>Selected destination</span><strong>{draft.receivingFacility.name}</strong></div>
+            <div><span>Source</span><strong>{draft.receivingFacility.fhirServerLabel ?? "Local demo directory"}</strong></div>
+            <div><span>NHFR code</span><strong>{draft.receivingFacility.nhfrCode || "Not returned"}</strong></div>
+            <div><span>HCPN</span><strong>{draft.receivingFacility.hcpnName || "Not returned"}</strong></div>
+            <div><span>Contact</span><strong>{draft.receivingFacility.phone || "Not returned"}</strong></div>
+          </div>
+          <div className="button-row">
+            <button type="button" className="secondary" onClick={() => setStep(3)}>
+              Back
+            </button>
+            <button type="button" onClick={() => setStep(5)}>
+              Continue to referral details
+            </button>
+          </div>
+        </section>
+      ) : null}
 
-      <section className="card">
-        <p className="eyebrow">Referral details</p>
-        <h2>Service request</h2>
-        <div className="form-grid three">
-          <FormField label="Referral ID"><TextInput value={draft.referralId} onChange={(event) => updateSection("referralId", event.target.value)} /></FormField>
-          <FormField label="Authored on"><TextInput type="datetime-local" value={draft.authoredOn} onChange={(event) => updateSection("authoredOn", event.target.value)} /></FormField>
-          <CodingFields label="Referral category" value={draft.referralCategory} onChange={(value) => updateSection("referralCategory", value)} />
-          <CodingFields label="Service type / reasonCode" value={draft.serviceType} onChange={(value) => updateSection("serviceType", value)} />
-        </div>
-        <FormField label="Referral narrative">
-          <textarea value={draft.referralNarrative} onChange={(event) => updateSection("referralNarrative", event.target.value)} />
-        </FormField>
-        <div className="notice">
-          IG-first mapping: referral category is encoded in <code>ServiceRequest.category</code> and
-          service type in <code>ServiceRequest.reasonCode</code>. The acceptance table’s conflicting
-          priority/category labels are not used in generated FHIR.
-        </div>
-      </section>
-
-      <section className="card">
-        <p className="eyebrow">Clinical details</p>
-        <h2>Conditions, vital signs, treatment, and laboratory result</h2>
-        <div className="form-grid">
-          <FormField label="Chief complaint"><textarea value={draft.chiefComplaint} onChange={(event) => updateSection("chiefComplaint", event.target.value)} /></FormField>
-          <FormField label="Clinical history"><textarea value={draft.clinicalHistory} onChange={(event) => updateSection("clinicalHistory", event.target.value)} /></FormField>
-          <FormField label="Working impression"><TextInput value={draft.workingImpressionText} onChange={(event) => updateSection("workingImpressionText", event.target.value)} /></FormField>
-          <CodingFields label="Working impression code" value={draft.workingImpression} onChange={(value) => updateSection("workingImpression", value)} />
-        </div>
-        <div className="form-grid three">
-          <FormField label="Observed at"><TextInput type="datetime-local" value={draft.vitals.observedAt} onChange={(event) => updateVitals("observedAt", event.target.value)} /></FormField>
-          {([
-            ["systolic", "Systolic (mmHg)"], ["diastolic", "Diastolic (mmHg)"],
-            ["heartRate", "Heart rate (/min)"], ["respiratoryRate", "Respiratory rate (/min)"],
-            ["oxygenSaturation", "Oxygen saturation (%)"], ["temperature", "Temperature (Cel)"],
-            ["weight", "Weight (kg)"]
-          ] as const).map(([key, label]) => (
-            <FormField label={label} key={key}>
-              <TextInput type="number" step="0.1" value={draft.vitals[key]} onChange={(event) => updateVitals(key, Number(event.target.value))} />
-            </FormField>
-          ))}
-        </div>
-        <FormField label="Treatment given"><textarea value={draft.treatment} onChange={(event) => updateSection("treatment", event.target.value)} /></FormField>
-        <div className="form-grid">
-          <FormField label="Laboratory attachment title"><TextInput value={draft.labTitle} onChange={(event) => updateSection("labTitle", event.target.value)} /></FormField>
-          <FormField label="Laboratory conclusion"><TextInput value={draft.labConclusion} onChange={(event) => updateSection("labConclusion", event.target.value)} /></FormField>
-        </div>
-      </section>
-
-      <div className="sticky-actions">
-        <span>Draft saved locally · synthetic data only</span>
-        <Link className="button" to="/referrals/preview">Preview FHIR Bundle</Link>
-      </div>
+      {step === 5 ? (
+        <>
+          <section className="card">
+            <p className="eyebrow">Step 5</p>
+            <h2>Referral request</h2>
+            <div className="form-grid three">
+              <FormField label="Referral ID">
+                <TextInput
+                  value={draft.referralId}
+                  onChange={(event) =>
+                    updateSection("referralId", event.target.value)
+                  }
+                />
+              </FormField>
+              <FormField label="Date and time of referral">
+                <TextInput
+                  type="datetime-local"
+                  value={draft.authoredOn}
+                  onChange={(event) =>
+                    updateSection("authoredOn", event.target.value)
+                  }
+                />
+              </FormField>
+              <FormField
+                label="Time called"
+                hint="Draft mapping uses ServiceRequest.occurrenceDateTime."
+              >
+                <TextInput
+                  type="datetime-local"
+                  value={draft.timeCalled}
+                  onChange={(event) =>
+                    updateSection("timeCalled", event.target.value)
+                  }
+                />
+              </FormField>
+              <FormField label="Priority">
+                <SelectInput
+                  value={draft.priority}
+                  onChange={(event) =>
+                    updateSection(
+                      "priority",
+                      event.target.value as ReferralDraft["priority"]
+                    )
+                  }
+                >
+                  {REFERRAL_PRIORITY_OPTIONS.map((option) => (
+                    <option value={option.code} key={option.code}>
+                      {option.display}
+                    </option>
+                  ))}
+                </SelectInput>
+              </FormField>
+            </div>
+            <div className="coding-grid">
+              <CodingSelect
+                label="Referral category"
+                value={draft.referralCategory}
+                options={REFERRAL_CATEGORY_OPTIONS}
+                onChange={(value) => updateSection("referralCategory", value)}
+              />
+              <CodingSelect
+                label="Requested service"
+                value={draft.requestedService}
+                options={REQUESTED_SERVICE_OPTIONS}
+                onChange={(value) => updateSection("requestedService", value)}
+              />
+              <CodingSelect
+                label="Clinical reason"
+                value={draft.clinicalReason}
+                options={CLINICAL_REASON_OPTIONS}
+                onChange={(value) => updateSection("clinicalReason", value)}
+              />
+            </div>
+            <div className="form-grid">
+              <FormField label="Referral narrative">
+                <textarea
+                  value={draft.referralNarrative}
+                  onChange={(event) =>
+                    updateSection("referralNarrative", event.target.value)
+                  }
+                />
+              </FormField>
+              <FormField label="Remarks / instructions">
+                <textarea
+                  value={draft.remarks}
+                  onChange={(event) =>
+                    updateSection("remarks", event.target.value)
+                  }
+                />
+              </FormField>
+            </div>
+          </section>
+          <section className="card">
+            <p className="eyebrow">Audit context</p>
+            <h2>Practitioners and signature</h2>
+            <div className="summary-grid">
+              <div>
+                <span>Referring practitioner</span>
+                <strong>
+                  {draft.referringPractitioner.prefix}{" "}
+                  {draft.referringPractitioner.given}{" "}
+                  {draft.referringPractitioner.family}
+                </strong>
+              </div>
+              <div>
+                <span>Receiving assignee</span>
+                <strong>
+                  {draft.receivingPractitioner
+                    ? [
+                        draft.receivingPractitioner.prefix,
+                        draft.receivingPractitioner.given,
+                        draft.receivingPractitioner.family
+                      ]
+                        .filter(Boolean)
+                        .join(" ")
+                    : draft.receivingFacility.name}
+                </strong>
+              </div>
+              <div>
+                <span>Signature</span>
+                <strong>Synthetic Provenance placeholder</strong>
+              </div>
+            </div>
+          </section>
+          <div className="sticky-actions">
+            <button type="button" className="secondary" onClick={() => setStep(4)}>
+              Back
+            </button>
+            <span>Draft saved locally - synthetic data only</span>
+            <Link className="button" to="/referrals/preview">
+              Preview and validate
+            </Link>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
 
-interface PersonSectionProps {
-  title: string;
-  person: ReferralDraft["referringPractitioner"];
-  onChange: (value: ReferralDraft["referringPractitioner"]) => void;
-}
-
-function PersonSection({ title, person, onChange }: PersonSectionProps) {
-  const update = (key: keyof typeof person, value: unknown) =>
-    onChange({ ...person, [key]: value } as typeof person);
+function WorkflowSteps({ current }: { current: number }) {
+  const labels = ["Patient", "Assessment", "Consent", "Destination", "Referral"];
   return (
-    <section className="card">
-      <p className="eyebrow">Master data</p><h2>{title}</h2>
-      <div className="form-grid three">
-        <FormField label="Prefix"><TextInput value={person.prefix} onChange={(event) => update("prefix", event.target.value)} /></FormField>
-        <FormField label="Given name"><TextInput value={person.given} onChange={(event) => update("given", event.target.value)} /></FormField>
-        <FormField label="Family name"><TextInput value={person.family} onChange={(event) => update("family", event.target.value)} /></FormField>
-        <FormField label="PRC license identifier"><TextInput value={person.license} onChange={(event) => update("license", event.target.value)} /></FormField>
-        <CodingFields label="Practitioner role" value={person.role} onChange={(role) => update("role", role)} />
-      </div>
-    </section>
-  );
-}
-
-interface AddressFieldsProps {
-  address: ReferralDraft["patient"]["address"];
-  onChange: (value: ReferralDraft["patient"]["address"]) => void;
-}
-
-function AddressFields({ address, onChange }: AddressFieldsProps) {
-  const update = (key: keyof typeof address, value: string) => onChange({ ...address, [key]: value });
-  return (
-    <div className="form-grid three nested-fields">
-      {([
-        ["line", "Street / address line"], ["barangay", "Barangay"], ["barangayCode", "Barangay PSGC"],
-        ["city", "City / municipality"], ["cityCode", "City PSGC"], ["province", "Province"],
-        ["provinceCode", "Province PSGC"], ["region", "Region"], ["regionCode", "Region PSGC"],
-        ["postalCode", "Postal code"]
-      ] as const).map(([key, label]) => (
-        <FormField label={label} key={key}><TextInput value={address[key]} onChange={(event) => update(key, event.target.value)} /></FormField>
+    <ol className="workflow-steps" aria-label="Referral workflow">
+      {labels.map((label, index) => (
+        <li className={current === index + 1 ? "current" : current > index + 1 ? "done" : ""} key={label}>
+          <span>{index + 1}</span>
+          {label}
+        </li>
       ))}
-    </div>
-  );
-}
-
-interface CodingFieldsProps {
-  label: string;
-  value: ReferralDraft["referralCategory"];
-  onChange: (value: ReferralDraft["referralCategory"]) => void;
-}
-
-function CodingFields({ label, value, onChange }: CodingFieldsProps) {
-  return (
-    <>
-      <FormField label={`${label} code`}><TextInput value={value.code} onChange={(event) => onChange({ ...value, code: event.target.value, manual: true })} /></FormField>
-      <FormField label={`${label} display`}><TextInput value={value.display} onChange={(event) => onChange({ ...value, display: event.target.value, manual: true })} /></FormField>
-      <FormField label={`${label} system`}><TextInput value={value.system} onChange={(event) => onChange({ ...value, system: event.target.value, manual: true })} /></FormField>
-    </>
+    </ol>
   );
 }

@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { JsonPanel } from "../components/JsonPanel";
 import { useAppContext } from "../context/useAppContext";
 import { hydrateReferral } from "../services/referralRetrieval";
@@ -112,7 +111,7 @@ export function RetrieveReferral() {
             <option value="task-focus">Task focus</option>
           </select>
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Enter search value" />
-          <button type="button" onClick={search} disabled={!query.trim() || loading}>{loading ? "Loading…" : "Search"}</button>
+          <button type="button" onClick={search} disabled={!query.trim() || loading}>{loading ? "Loading..." : "Search"}</button>
         </div>
         {message ? <p>{message}</p> : null}
       </section>
@@ -138,7 +137,12 @@ export function RetrieveReferral() {
       {aggregate ? (
         <>
           <ClinicalSummary aggregate={aggregate} />
-          {aggregate.task?.id ? <Link className="button" to={`/receiving/${aggregate.task.id}`}>Open receiving-facility view</Link> : null}
+          {aggregate.task?.id ? (
+            <div className="notice">
+              Remote retrieval is read-only in this screen. Facility workflow updates
+              are performed from locally tracked incoming referrals.
+            </div>
+          ) : null}
           <JsonPanel title="Retrieved linked FHIR resources" value={aggregate} />
         </>
       ) : null}
@@ -160,9 +164,9 @@ export function ClinicalSummary({ aggregate }: ClinicalSummaryProps) {
       <p className="eyebrow">Receiving-facility clinical summary</p>
       <h2>{displayName}</h2>
       <div className="summary-grid">
-        <div><span>Gender</span><strong>{String(aggregate.patient?.gender ?? "—")}</strong></div>
-        <div><span>Birth date</span><strong>{String(aggregate.patient?.birthDate ?? "—")}</strong></div>
-        <div><span>Task status</span><strong>{String(aggregate.task?.status ?? "—")}</strong></div>
+        <div><span>Gender</span><strong>{String(aggregate.patient?.gender ?? "-")}</strong></div>
+        <div><span>Birth date</span><strong>{String(aggregate.patient?.birthDate ?? "-")}</strong></div>
+        <div><span>Task status</span><strong>{String(aggregate.task?.status ?? "-")}</strong></div>
         <div><span>Conditions</span><strong>{aggregate.conditions.length}</strong></div>
         <div><span>Vital observations</span><strong>{aggregate.observations.length}</strong></div>
         <div><span>Attachments</span><strong>{aggregate.diagnosticReports.length}</strong></div>
