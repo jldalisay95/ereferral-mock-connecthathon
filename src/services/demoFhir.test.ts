@@ -8,7 +8,7 @@ describe("Demo-mode FHIR transaction resolution", () => {
     const bundle = buildReferralTransactionBundle(createDemoDraft());
     const resolved = resolveTransactionBundle(bundle);
     expect(resolved.response.resourceType).toBe("Bundle");
-    expect(resolved.resources).toHaveLength(21);
+    expect(resolved.resources).toHaveLength(22);
     expect(resolved.resourceIds.Task).toHaveLength(1);
     const task = findResource(resolved.resources, "Task");
     expect(task?.id).toMatch(/^local-/);

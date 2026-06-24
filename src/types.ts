@@ -211,6 +211,20 @@ export interface FacilityAccount {
   practitionerRoleId?: string;
 }
 
+export interface FacilityRegistrationInput {
+  organizationName: string;
+  nhfrCode: string;
+  hcpnName: string;
+  phone: string;
+  address: AddressInput;
+  practitionerPrefix: string;
+  practitionerGiven: string;
+  practitionerFamily: string;
+  practitionerLicense: string;
+  username: string;
+  password: string;
+}
+
 export interface AppSession {
   userId: string;
   username: string;
@@ -315,6 +329,8 @@ export interface PersistedAppState {
   session: AppSession | null;
   settings: AppSettings;
   activeDraftIds: Record<string, string>;
+  registeredFacilities: FacilityDefinition[];
+  registeredAccounts: FacilityAccount[];
   patients: PatientRecord[];
   referrals: ReferralRecord[];
   notifications: Notification[];

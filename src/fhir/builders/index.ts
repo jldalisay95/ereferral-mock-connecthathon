@@ -27,6 +27,22 @@ export interface ReferralReferences {
 
 const profile = (url: string) => ({ profile: [url] });
 const reference = (value: string) => ({ reference: value });
+const localResourceReference = (value: string) => {
+  if (!value.startsWith("http://") && !value.startsWith("https://")) return value;
+  try {
+    const segments = new URL(value).pathname.split("/").filter(Boolean);
+    const historyIndex = segments.lastIndexOf("_history");
+    if (historyIndex >= 2) {
+      return `${segments[historyIndex - 2]}/${segments[historyIndex - 1]}`;
+    }
+    if (segments.length >= 2) {
+      return `${segments[segments.length - 2]}/${segments[segments.length - 1]}`;
+    }
+  } catch {
+    return value;
+  }
+  return value;
+};
 const codeable = (coding: CodingInput, text?: string) => ({
   coding: [{ system: coding.system, code: coding.code, display: coding.display }],
   ...(text ? { text } : {})
@@ -220,7 +236,7 @@ export function buildEncounter(draft: ReferralDraft, refs: ReferralReferences): 
     meta: profile(PROFILES.encounter),
     language: "en",
     text: narrative(`Referral encounter for ${draft.patient.given} ${draft.patient.family}`),
-    status: "completed",
+    status: "finished",
     class: {
       system: "http://terminology.hl7.org/CodeSystem/v3-ActCode",
       code: "AMB",
@@ -310,6 +326,18 @@ export function buildWorkingImpressionCondition(
 }
 
 const vitalDefinitions = {
+  systolic: {
+    code: "8480-6",
+    display: "Systolic blood pressure",
+    unit: "mmHg",
+    unitCode: "mm[Hg]"
+  },
+  diastolic: {
+    code: "8462-4",
+    display: "Diastolic blood pressure",
+    unit: "mmHg",
+    unitCode: "mm[Hg]"
+  },
   heartRate: {
     code: "8867-4",
     display: "Heart rate",
@@ -350,7 +378,6 @@ export function buildVitalSignObservation(
   const definition = vitalDefinitions[kind];
   return {
     resourceType: "Observation",
-    meta: profile(PROFILES.observation),
     language: "en",
     text: narrative(`${definition.display}: ${draft.vitals[kind]} ${definition.unit}`),
     status: "final",
@@ -378,81 +405,6 @@ export function buildVitalSignObservation(
       system: "http://unitsofmeasure.org",
       code: definition.unitCode
     }
-  };
-}
-
-export function buildBloodPressureObservation(
-  draft: ReferralDraft,
-  refs: ReferralReferences
-): FhirResource {
-  return {
-    resourceType: "Observation",
-    meta: profile(PROFILES.observation),
-    language: "en",
-    text: narrative(
-      `Blood pressure: ${draft.vitals.systolic}/${draft.vitals.diastolic} mmHg`
-    ),
-    status: "final",
-    category: [
-      {
-        coding: [
-          {
-            system: "http://terminology.hl7.org/CodeSystem/observation-category",
-            code: "vital-signs",
-            display: "Vital Signs"
-          }
-        ]
-      }
-    ],
-    code: {
-      coding: [
-        {
-          system: "http://loinc.org",
-          code: "85354-9",
-          display: "Blood pressure panel with all children optional"
-        }
-      ]
-    },
-    subject: reference(refs.patient),
-    encounter: reference(refs.encounter),
-    performer: [reference(refs.referringRole)],
-    effectiveDateTime: iso(draft.vitals.observedAt),
-    component: [
-      {
-        code: {
-          coding: [
-            {
-              system: "http://loinc.org",
-              code: "8480-6",
-              display: "Systolic blood pressure"
-            }
-          ]
-        },
-        valueQuantity: {
-          value: draft.vitals.systolic,
-          unit: "mmHg",
-          system: "http://unitsofmeasure.org",
-          code: "mm[Hg]"
-        }
-      },
-      {
-        code: {
-          coding: [
-            {
-              system: "http://loinc.org",
-              code: "8462-4",
-              display: "Diastolic blood pressure"
-            }
-          ]
-        },
-        valueQuantity: {
-          value: draft.vitals.diastolic,
-          unit: "mmHg",
-          system: "http://unitsofmeasure.org",
-          code: "mm[Hg]"
-        }
-      }
-    ]
   };
 }
 
@@ -487,24 +439,10 @@ export function buildDiagnosticReport(
     language: "en",
     text: narrative(`${draft.labTitle}: ${draft.labConclusion}`),
     status: "final",
-    code: {
-      coding: [
-        {
-          system: "http://loinc.org",
-          code: "24356-8",
-          display: "Urinalysis complete panel - Urine"
-        }
-      ]
-    },
+    code: { text: draft.labTitle },
     subject: reference(refs.patient),
     encounter: reference(refs.encounter),
-    conclusion: draft.labConclusion,
-    presentedForm: [
-      {
-        title: draft.labTitle,
-        data: draft.labAttachmentBase64
-      }
-    ]
+    conclusion: draft.labConclusion
   };
 }
 
@@ -648,7 +586,9 @@ function newUrn() {
 export function buildReferralTransactionBundle(draft: ReferralDraft): FhirResource {
   const hasReceivingPractitioner = Boolean(draft.receivingPractitioner);
   const receivingOrganizationReference =
-    draft.receivingFacility.fhirReference ?? newUrn();
+    draft.receivingFacility.fhirReference
+      ? localResourceReference(draft.receivingFacility.fhirReference)
+      : newUrn();
   const refs: ReferralReferences = {
     patient: newUrn(),
     referringPractitioner: newUrn(),
@@ -661,7 +601,7 @@ export function buildReferralTransactionBundle(draft: ReferralDraft): FhirResour
     encounter: newUrn(),
     chiefComplaint: newUrn(),
     workingImpression: newUrn(),
-    observations: Array.from({ length: 6 }, newUrn),
+    observations: Array.from({ length: 7 }, newUrn),
     procedure: newUrn(),
     diagnosticReport: newUrn(),
     task: newUrn(),
@@ -752,7 +692,8 @@ export function buildReferralTransactionBundle(draft: ReferralDraft): FhirResour
     );
   }
   const observations = [
-    buildBloodPressureObservation(draft, refs),
+    buildVitalSignObservation(draft, refs, "systolic"),
+    buildVitalSignObservation(draft, refs, "diastolic"),
     buildVitalSignObservation(draft, refs, "heartRate"),
     buildVitalSignObservation(draft, refs, "respiratoryRate"),
     buildVitalSignObservation(draft, refs, "oxygenSaturation"),

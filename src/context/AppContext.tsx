@@ -1,13 +1,18 @@
 import { useMemo, useState, type PropsWithChildren } from "react";
-import { DEFAULT_ENDPOINTS } from "../config/fhir";
+import {
+  CLINICAL_REASON_OPTIONS,
+  DEFAULT_ENDPOINTS,
+  REFERRAL_CATEGORY_OPTIONS,
+  REQUESTED_SERVICE_OPTIONS
+} from "../config/fhir";
 import {
   DEMO_ACCOUNTS,
-  FACILITIES,
-  authenticateAccount,
-  findAccount,
-  findFacility
+  FACILITIES
 } from "../data/facilities";
 import { createDemoDraft } from "../data/demo";
+import { createEmptyPatient, patientDisplayName } from "../data/patients";
+import { buildOrganization } from "../fhir/builders";
+import { emptyValidationSummary } from "../fhir/operationOutcome";
 import { applyTaskTransition } from "../fhir/taskTransitions";
 import {
   parseTransactionResponse,
@@ -19,6 +24,11 @@ import { findResource, resolveTransactionBundle } from "../services/demoFhir";
 import { createNotification, localRepository } from "../services/localRepository";
 import { organizationDestinationId } from "../services/organizationDirectory";
 import { createPatientRecord } from "../services/patientRegistry";
+import {
+  hydrateReferral,
+  parseReference,
+  searchIncomingReferralsForFacility
+} from "../services/referralRetrieval";
 import { assertReferralSubmissionReady } from "../services/referralValidation";
 import {
   createDraftRecord,
@@ -32,6 +42,9 @@ import {
 import type {
   AppSettings,
   CareStatus,
+  FacilityAccount,
+  FacilityDefinition,
+  FacilityRegistrationInput,
   FhirResource,
   PatientInput,
   PatientRecord,
@@ -45,6 +58,73 @@ import type {
   ValidationSummary
 } from "../types";
 import { AppContext } from "./appContextValue";
+
+const SYSTEM_TEXT = {
+  system: "urn:ietf:rfc:3986",
+  code: "unknown",
+  display: "Not specified"
+};
+
+function firstCodeable(value: unknown, fallback: typeof SYSTEM_TEXT = SYSTEM_TEXT) {
+  const source = Array.isArray(value) ? value[0] : value;
+  const coding = (
+    source as { coding?: Array<{ system?: string; code?: string; display?: string }>; text?: string } | undefined
+  )?.coding?.[0];
+  return {
+    system: coding?.system ?? fallback.system,
+    code: coding?.code ?? fallback.code,
+    display:
+      coding?.display ??
+      (source as { text?: string } | undefined)?.text ??
+      fallback.display
+  };
+}
+
+function firstIdentifier(
+  resource: FhirResource | undefined,
+  system: string
+) {
+  return (
+    resource?.identifier as Array<{ system?: string; value?: string }> | undefined
+  )?.find((identifier) => identifier.system === system)?.value ?? "";
+}
+
+function patientFromResource(resource: FhirResource | undefined): PatientInput {
+  const patient = createEmptyPatient();
+  if (!resource) return patient;
+  const name = (
+    resource.name as Array<{ given?: string[]; family?: string; text?: string }> | undefined
+  )?.[0];
+  const textParts = name?.text?.split(" ").filter(Boolean) ?? [];
+  patient.given = name?.given?.join(" ") ?? textParts.slice(0, -1).join(" ");
+  patient.family = name?.family ?? textParts.at(-1) ?? "";
+  patient.gender =
+    resource.gender === "male" ||
+    resource.gender === "female" ||
+    resource.gender === "other" ||
+    resource.gender === "unknown"
+      ? resource.gender
+      : "unknown";
+  patient.birthDate = typeof resource.birthDate === "string" ? resource.birthDate : "";
+  patient.philSysId = firstIdentifier(resource, "http://philsys.gov.ph/fhir/Identifier/philsys-id");
+  patient.philHealthId = firstIdentifier(
+    resource,
+    "http://philhealth.gov.ph/fhir/Identifier/philhealth-id"
+  );
+  patient.phone =
+    (
+      resource.telecom as Array<{ system?: string; value?: string }> | undefined
+    )?.find((telecom) => telecom.system === "phone")?.value ?? "";
+  return patient;
+}
+
+function organizationName(resource: FhirResource | undefined, fallback: string) {
+  return typeof resource?.name === "string" ? resource.name : fallback;
+}
+
+function taskBusinessStatus(task: FhirResource | undefined): ReceivingResponse | undefined {
+  return task ? businessStatusFromTask(task) : undefined;
+}
 
 function referencesFromResources(resources: FhirResource[]) {
   const patient = findResource(resources, "Patient");
@@ -100,7 +180,19 @@ function careStatusFromTransition(transition: TaskTransition): CareStatus | unde
 
 export function AppProvider({ children }: PropsWithChildren) {
   const [state, setState] = useState<PersistedAppState>(() => localRepository.load());
-  const currentAccount = state.session ? findAccount(state.session.userId) ?? null : null;
+  const facilities = useMemo<FacilityDefinition[]>(
+    () => [...FACILITIES, ...state.registeredFacilities],
+    [state.registeredFacilities]
+  );
+  const accounts = useMemo<FacilityAccount[]>(
+    () => [...DEMO_ACCOUNTS, ...state.registeredAccounts],
+    [state.registeredAccounts]
+  );
+  const findFacilityById = (id: string) =>
+    facilities.find((facility) => facility.id === id);
+  const currentAccount = state.session
+    ? accounts.find((account) => account.id === state.session?.userId) ?? null
+    : null;
   const activeDraftId = currentAccount ? state.activeDraftIds[currentAccount.id] : undefined;
   const activeDraftRecord =
     state.referrals.find((referral) => referral.id === activeDraftId) ?? null;
@@ -114,7 +206,11 @@ export function AppProvider({ children }: PropsWithChildren) {
   }
 
   function login(username: string, password: string) {
-    const account = authenticateAccount(username, password);
+    const account = accounts.find(
+      (item) =>
+        item.username.toLowerCase() === username.trim().toLowerCase() &&
+        item.password === password
+    );
     if (!account) throw new Error("Invalid username or password.");
     commit((current) => ({
       ...current,
@@ -143,6 +239,91 @@ export function AppProvider({ children }: PropsWithChildren) {
       ...current,
       settings: { version: 3, ...DEFAULT_ENDPOINTS }
     }));
+  }
+
+  async function registerFacility(
+    value: FacilityRegistrationInput
+  ): Promise<FacilityDefinition> {
+    if (!currentAccount || currentAccount.role !== "admin") {
+      throw new Error("Only an administrator can register facilities.");
+    }
+    const username = value.username.trim().toLowerCase();
+    const organizationName = value.organizationName.trim();
+    const nhfrCode = value.nhfrCode.trim();
+    if (!organizationName || !nhfrCode || !username || !value.password) {
+      throw new Error("Facility name, NHFR code, username, and password are required.");
+    }
+    if (accounts.some((account) => account.username.toLowerCase() === username)) {
+      throw new Error("Username already exists.");
+    }
+    if (
+      facilities.some(
+        (facility) =>
+          facility.organization.nhfrCode &&
+          facility.organization.nhfrCode === nhfrCode
+      )
+    ) {
+      throw new Error("A facility with this NHFR code already exists.");
+    }
+    const id = `org-${crypto.randomUUID()}`;
+    const practitionerRoleId = `practitioner-role-${crypto.randomUUID()}`;
+    const organization = {
+      name: organizationName,
+      nhfrCode,
+      hcpnName: value.hcpnName.trim(),
+      phone: value.phone.trim(),
+      address: structuredClone(value.address),
+      source: "local" as const
+    };
+    const facility: FacilityDefinition = {
+      id,
+      name: organization.name,
+      practitionerRoleId,
+      organization,
+      practitioner: {
+        prefix: value.practitionerPrefix.trim() || undefined,
+        given: value.practitionerGiven.trim() || "Facility",
+        family: value.practitionerFamily.trim() || "Practitioner",
+        license: value.practitionerLicense.trim() || `SYN-PRC-${nhfrCode}`,
+        role: {
+          system: "http://snomed.info/sct",
+          code: "158965000",
+          display: "Doctor"
+        }
+      }
+    };
+    const account: FacilityAccount = {
+      id: `user-${crypto.randomUUID()}`,
+      username,
+      password: value.password,
+      displayName: `${facility.name} User`,
+      role: "facility_user",
+      organizationId: id,
+      organizationName: facility.name,
+      practitionerRoleId
+    };
+    if (!state.settings.demoMode) {
+      await submitTransactionBundle(state.settings.pherefBaseUrl, {
+        resourceType: "Bundle",
+        type: "transaction",
+        entry: [
+          {
+            fullUrl: `urn:uuid:${crypto.randomUUID()}`,
+            resource: buildOrganization(organization),
+            request: {
+              method: "PUT",
+              url: `Organization?identifier=https://fhir.doh.gov.ph/phcore/Identifier/doh-nhfr-code|${nhfrCode}`
+            }
+          }
+        ]
+      });
+    }
+    commit((current) => ({
+      ...current,
+      registeredFacilities: [facility, ...current.registeredFacilities],
+      registeredAccounts: [account, ...current.registeredAccounts]
+    }));
+    return facility;
   }
 
   function savePatient(
@@ -211,8 +392,8 @@ export function AppProvider({ children }: PropsWithChildren) {
         record.id === patientId &&
         record.organizationId === currentAccount.organizationId
     );
-    const referring = findFacility(currentAccount.organizationId);
-    const receiving = FACILITIES.find(
+    const referring = findFacilityById(currentAccount.organizationId);
+    const receiving = facilities.find(
       (facility) => facility.id !== currentAccount.organizationId
     );
     if (!patient || !referring || !receiving) {
@@ -235,7 +416,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     if (!currentAccount || !activeDraftRecord) return;
     const receiving = draft.receivingFacility.fhirReference
       ? undefined
-      : FACILITIES.find(
+      : facilities.find(
           (facility) =>
             facility.organization.nhfrCode === draft.receivingFacility.nhfrCode
         );
@@ -283,10 +464,10 @@ export function AppProvider({ children }: PropsWithChildren) {
 
   function resetDraft() {
     if (!currentAccount || !activeDraftRecord) return;
-    const referring = findFacility(currentAccount.organizationId);
+    const referring = findFacilityById(currentAccount.organizationId);
     const receiving =
-      findFacility(activeDraftRecord.receivingOrganizationId) ??
-      FACILITIES.find((facility) => facility.id !== currentAccount.organizationId);
+      findFacilityById(activeDraftRecord.receivingOrganizationId) ??
+      facilities.find((facility) => facility.id !== currentAccount.organizationId);
     const patient = state.patients.find(
       (item) => item.id === activeDraftRecord.patientId
     );
@@ -398,7 +579,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         )
       ]
     };
-    const localDestination = FACILITIES.some(
+    const localDestination = facilities.some(
       (facility) => facility.id === updated.receivingOrganizationId
     );
     commit((current) => ({
@@ -470,7 +651,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       const businessStatus = businessStatusFromTask(savedTask);
       const careStatus = careStatusFromTransition(transition) ?? record.careStatus;
       const forwardingFacility = forwardingFacilityId
-        ? findFacility(forwardingFacilityId)
+        ? findFacilityById(forwardingFacilityId)
         : undefined;
       const now = new Date().toISOString();
       const updated: ReferralRecord = {
@@ -572,6 +753,236 @@ export function AppProvider({ children }: PropsWithChildren) {
     return updated;
   }
 
+  async function refreshLiveIncomingReferrals(): Promise<number> {
+    if (!currentAccount || currentAccount.role !== "facility_user") {
+      throw new Error("A facility account is required to retrieve incoming referrals.");
+    }
+    const facility = findFacilityById(currentAccount.organizationId);
+    if (!facility) throw new Error("Current facility configuration was not found.");
+    const serviceRequests = await searchIncomingReferralsForFacility(
+      state.settings.pherefBaseUrl,
+      facility.organization
+    );
+    const aggregates = await Promise.all(
+      serviceRequests.map((serviceRequest) =>
+        hydrateReferral(state.settings.pherefBaseUrl, serviceRequest)
+      )
+    );
+    const now = new Date().toISOString();
+    const records = aggregates.flatMap((aggregate): ReferralRecord[] => {
+      const serviceRequest = aggregate.serviceRequest;
+      if (!serviceRequest.id) return [];
+      const patient = patientFromResource(aggregate.patient);
+      const receivingRoleRef = parseReference(
+        Array.isArray(serviceRequest.performer)
+          ? serviceRequest.performer[0]
+          : undefined
+      );
+      const requesterRoleRef = parseReference(serviceRequest.requester);
+      const receivingRole = aggregate.practitionerRoles.find(
+        (role) => role.id === receivingRoleRef?.id
+      );
+      const requesterRole = aggregate.practitionerRoles.find(
+        (role) => role.id === requesterRoleRef?.id
+      );
+      const receivingOrganization = aggregate.organizations.find(
+        (organization) =>
+          parseReference(receivingRole?.organization)?.id === organization.id
+      );
+      const referringOrganization = aggregate.organizations.find(
+        (organization) =>
+          parseReference(requesterRole?.organization)?.id === organization.id
+      );
+      const task = aggregate.task;
+      const status = task ? statusFromTask(task) : "requested";
+      const authoredOn =
+        typeof serviceRequest.authoredOn === "string" ? serviceRequest.authoredOn : now;
+      const requestedService = firstCodeable(
+        serviceRequest.code,
+        REQUESTED_SERVICE_OPTIONS[0]
+      );
+      const referralCategory = firstCodeable(
+        serviceRequest.category,
+        REFERRAL_CATEGORY_OPTIONS[0]
+      );
+      const clinicalReason = firstCodeable(
+        serviceRequest.reasonCode,
+        CLINICAL_REASON_OPTIONS[0]
+      );
+      const priority =
+        serviceRequest.priority === "routine" ||
+        serviceRequest.priority === "urgent" ||
+        serviceRequest.priority === "stat"
+          ? serviceRequest.priority
+          : "routine";
+      const draft: ReferralDraft = {
+        referralId:
+          (serviceRequest.requisition as { value?: string } | undefined)?.value ??
+          serviceRequest.id,
+        patientRecordId: aggregate.patient?.id
+          ? `remote-patient-${aggregate.patient.id}`
+          : "remote-patient",
+        authoredOn,
+        timeCalled:
+          typeof serviceRequest.occurrenceDateTime === "string"
+            ? serviceRequest.occurrenceDateTime
+            : authoredOn,
+        referringPractitioner: {
+          given: "Remote",
+          family: "Practitioner",
+          license: "",
+          role: { ...SYSTEM_TEXT, display: "Remote requester" }
+        },
+        initiatingFacility: {
+          name: organizationName(referringOrganization, "Remote referring facility"),
+          nhfrCode: firstIdentifier(
+            referringOrganization,
+            "https://fhir.doh.gov.ph/phcore/Identifier/doh-nhfr-code"
+          ),
+          hcpnName: "",
+          phone: "",
+          address: createEmptyPatient().address,
+          source: "fhir",
+          fhirReference: referringOrganization?.id
+            ? `Organization/${referringOrganization.id}`
+            : undefined,
+          fhirServerLabel: "PHeReF CDR"
+        },
+        receivingFacility: {
+          name: organizationName(receivingOrganization, currentAccount.organizationName),
+          nhfrCode: facility.organization.nhfrCode,
+          hcpnName: facility.organization.hcpnName,
+          phone: facility.organization.phone,
+          address: structuredClone(facility.organization.address),
+          source: "fhir",
+          fhirReference: receivingOrganization?.id
+            ? `Organization/${receivingOrganization.id}`
+            : facility.organization.fhirReference,
+          fhirServerLabel: "PHeReF CDR"
+        },
+        patient,
+        referralCategory,
+        priority,
+        requestedService,
+        clinicalReason,
+        referralNarrative:
+          (serviceRequest.note as Array<{ text?: string }> | undefined)?.[0]?.text ??
+          requestedService.display,
+        remarks:
+          (serviceRequest.note as Array<{ text?: string }> | undefined)?.[1]?.text ?? "",
+        chiefComplaint:
+          (aggregate.conditions[0]?.code as { text?: string } | undefined)?.text ?? "",
+        clinicalHistory: String(aggregate.conditions[0]?.note ?? ""),
+        workingImpressionText:
+          (aggregate.conditions[1]?.code as { text?: string } | undefined)?.text ??
+          clinicalReason.display,
+        vitals: {
+          observedAt: authoredOn,
+          systolic: 0,
+          diastolic: 0,
+          heartRate: 0,
+          respiratoryRate: 0,
+          oxygenSaturation: 0,
+          temperature: 0,
+          weight: 0
+        },
+        treatment:
+          (aggregate.procedures[0]?.note as Array<{ text?: string }> | undefined)?.[0]?.text ??
+          "",
+        labTitle:
+          (aggregate.diagnosticReports[0]?.code as { text?: string } | undefined)?.text ??
+          "Diagnostic report",
+        labConclusion: String(aggregate.diagnosticReports[0]?.conclusion ?? ""),
+        labAttachmentBase64: "",
+        referralCriteriaSatisfied: true,
+        consentGiven: false,
+        consentStatement: "",
+        signatureBase64: ""
+      };
+      const resources = [
+        serviceRequest,
+        aggregate.patient,
+        task,
+        aggregate.encounter,
+        ...aggregate.conditions,
+        ...aggregate.observations,
+        ...aggregate.procedures,
+        ...aggregate.diagnosticReports,
+        ...aggregate.provenances,
+        ...aggregate.organizations,
+        ...aggregate.practitioners,
+        ...aggregate.practitionerRoles
+      ].filter((resource): resource is FhirResource => Boolean(resource));
+      return [
+        {
+          id: `remote-ServiceRequest-${serviceRequest.id}`,
+          localReferralId: draft.referralId,
+          patientId: draft.patientRecordId,
+          patientName: patientDisplayName(patient) || "Remote patient",
+          referringOrganizationId: referringOrganization?.id
+            ? `remote-Organization-${referringOrganization.id}`
+            : "remote-referring-organization",
+          referringOrganizationName: draft.initiatingFacility.name,
+          receivingOrganizationId: currentAccount.organizationId,
+          receivingOrganizationName: currentAccount.organizationName,
+          reason: requestedService.display,
+          priority,
+          category: referralCategory.display,
+          consentGiven: false,
+          status,
+          taskStatus: String(task?.status ?? status),
+          businessStatus: taskBusinessStatus(task),
+          createdAt: authoredOn,
+          updatedAt: String(task?.lastModified ?? serviceRequest.meta?.lastUpdated ?? now),
+          submittedAt: authoredOn,
+          validationSummary: emptyValidationSummary(),
+          fhirBundle: { resourceType: "Bundle", type: "collection", entry: [] },
+          fhirResources: resources,
+          resourceReferences: {
+            patientReference: aggregate.patient?.id ? `Patient/${aggregate.patient.id}` : undefined,
+            serviceRequestReference: `ServiceRequest/${serviceRequest.id}`,
+            taskReference: task?.id ? `Task/${task.id}` : undefined,
+            encounterReference: aggregate.encounter?.id
+              ? `Encounter/${aggregate.encounter.id}`
+              : undefined
+          },
+          draft,
+          timeline: [
+            createTimelineEvent(
+              `remote-ServiceRequest-${serviceRequest.id}`,
+              status,
+              "Live incoming referral retrieved from the PHeReF CDR.",
+              currentAccount
+            )
+          ],
+          liveSubmission: true
+        }
+      ];
+    });
+    commit((current) => {
+      const existingById = new Map(current.referrals.map((item) => [item.id, item]));
+      const merged = records.map((record) => {
+        const existing = existingById.get(record.id);
+        return existing
+          ? {
+              ...existing,
+              ...record,
+              timeline: existing.timeline.length ? existing.timeline : record.timeline
+            }
+          : record;
+      });
+      const incomingIds = new Set(records.map((record) => record.id));
+      return {
+        ...current,
+        referrals: [
+          ...merged,
+          ...current.referrals.filter((record) => !incomingIds.has(record.id))
+        ]
+      };
+    });
+    return records.length;
+  }
+
   function markNotificationRead(notificationId: string) {
     commit((current) => ({
       ...current,
@@ -625,8 +1036,8 @@ export function AppProvider({ children }: PropsWithChildren) {
   return (
     <AppContext.Provider
       value={{
-        accounts: DEMO_ACCOUNTS,
-        facilities: FACILITIES,
+        accounts,
+        facilities,
         currentAccount,
         settings: state.settings,
         endpoints: state.settings,
@@ -644,6 +1055,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         logout,
         setEndpoints,
         resetEndpoints,
+        registerFacility,
         savePatient,
         linkWalkInPatient,
         draft: activeDraftRecord?.draft ?? null,
@@ -656,6 +1068,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         submitCurrentReferral,
         transitionReferral,
         refreshReferral,
+        refreshLiveIncomingReferrals,
         markNotificationRead,
         markReferralNotificationsRead,
         getReferral: (referralId) =>

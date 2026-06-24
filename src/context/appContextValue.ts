@@ -3,6 +3,7 @@ import type {
   AppSettings,
   FacilityAccount,
   FacilityDefinition,
+  FacilityRegistrationInput,
   Notification,
   PatientInput,
   PatientRecord,
@@ -32,6 +33,7 @@ export interface AppContextValue {
   logout: () => void;
   setEndpoints: (value: AppSettings) => void;
   resetEndpoints: () => void;
+  registerFacility: (value: FacilityRegistrationInput) => Promise<FacilityDefinition>;
   savePatient: (
     patient: PatientInput,
     registryType: RegistryType,
@@ -57,6 +59,7 @@ export interface AppContextValue {
     forwardingFacilityId?: string
   ) => Promise<ReferralRecord>;
   refreshReferral: (referralId: string) => Promise<ReferralRecord>;
+  refreshLiveIncomingReferrals: () => Promise<number>;
   markNotificationRead: (notificationId: string) => void;
   markReferralNotificationsRead: (referralId: string) => void;
   getReferral: (referralId: string) => ReferralRecord | undefined;

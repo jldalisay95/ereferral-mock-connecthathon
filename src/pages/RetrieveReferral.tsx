@@ -1,16 +1,17 @@
 import { useState } from "react";
 import { JsonPanel } from "../components/JsonPanel";
 import { useAppContext } from "../context/useAppContext";
-import { hydrateReferral } from "../services/referralRetrieval";
-import { searchResources } from "../services/fhirClient";
+import { hydrateReferral, searchRemoteReferrals } from "../services/referralRetrieval";
 import type { FhirResource, ReferralAggregate } from "../types";
 
-type SearchMode = "patient-identifier" | "patient-name" | "service-status" | "task-status" | "service-subject" | "task-focus";
-
 export function RetrieveReferral() {
-  const { endpoints } = useAppContext();
-  const [mode, setMode] = useState<SearchMode>("patient-identifier");
-  const [query, setQuery] = useState("");
+  const { currentAccount, endpoints, facilities } = useAppContext();
+  const [patientQuery, setPatientQuery] = useState("");
+  const [organizationQuery, setOrganizationQuery] = useState(
+    currentAccount?.role === "facility_user" ? currentAccount.organizationName : ""
+  );
+  const [serviceStatus, setServiceStatus] = useState("");
+  const [taskStatus, setTaskStatus] = useState("");
   const [results, setResults] = useState<FhirResource[]>([]);
   const [aggregate, setAggregate] = useState<ReferralAggregate | null>(null);
   const [message, setMessage] = useState("");
@@ -21,64 +22,17 @@ export function RetrieveReferral() {
     setMessage("");
     setAggregate(null);
     try {
-      let serviceRequests: FhirResource[] = [];
-      if (mode === "patient-identifier" || mode === "patient-name") {
-        const patientParam = mode === "patient-identifier" ? "identifier" : "name";
-        const patients = await searchResources(
-          endpoints.pherefBaseUrl,
-          "Patient",
-          new URLSearchParams({ [patientParam]: query })
-        );
-        const batches = await Promise.all(
-          patients.flatMap((patient) =>
-            patient.id
-              ? [
-                  searchResources(
-                    endpoints.pherefBaseUrl,
-                    "ServiceRequest",
-                    new URLSearchParams({ subject: `Patient/${patient.id}` })
-                  )
-                ]
-              : []
-          )
-        );
-        serviceRequests = batches.flat();
-      } else if (mode === "task-status" || mode === "task-focus") {
-        const taskParam = mode === "task-status" ? "status" : "focus";
-        const tasks = await searchResources(
-          endpoints.pherefBaseUrl,
-          "Task",
-          new URLSearchParams({ [taskParam]: query })
-        );
-        serviceRequests = (
-          await Promise.all(
-            tasks.flatMap((task) => {
-              const focus = task.focus as { reference?: string } | undefined;
-              const match = focus?.reference?.match(/ServiceRequest\/([^/]+)$/);
-              return match
-                ? [
-                    searchResources(
-                      endpoints.pherefBaseUrl,
-                      "ServiceRequest",
-                      new URLSearchParams({ _id: match[1] })
-                    )
-                  ]
-                : [];
-            })
-          )
-        ).flat();
-      } else {
-        const param = mode === "service-status" ? "status" : "subject";
-        serviceRequests = await searchResources(
-          endpoints.pherefBaseUrl,
-          "ServiceRequest",
-          new URLSearchParams({ [param]: query })
-        );
-      }
-      setResults(
-        [...new Map(serviceRequests.map((item) => [item.id ?? JSON.stringify(item), item])).values()]
+      const serviceRequests = await searchRemoteReferrals(
+        endpoints.pherefBaseUrl,
+        {
+          patient: patientQuery,
+          organization: organizationQuery,
+          serviceStatus,
+          taskStatus
+        }
       );
-      setMessage(`${serviceRequests.length} referral result(s) returned.`);
+      setResults(serviceRequests);
+      setMessage(`${serviceRequests.length} server referral result(s) returned.`);
     } catch (error) {
       setMessage(`Search failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
@@ -101,17 +55,75 @@ export function RetrieveReferral() {
     <div className="page-stack">
       <section className="card">
         <p className="eyebrow">Use Case 2</p><h2>Search and retrieve referrals</h2>
-        <div className="search-row">
-          <select value={mode} onChange={(event) => setMode(event.target.value as SearchMode)} aria-label="Search type">
-            <option value="patient-identifier">Patient identifier</option>
-            <option value="patient-name">Patient name</option>
-            <option value="service-status">ServiceRequest status</option>
-            <option value="task-status">Task status</option>
-            <option value="service-subject">ServiceRequest subject</option>
-            <option value="task-focus">Task focus</option>
-          </select>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Enter search value" />
-          <button type="button" onClick={search} disabled={!query.trim() || loading}>{loading ? "Loading..." : "Search"}</button>
+        <div className="form-grid">
+          <label className="field">
+            <span>Patient</span>
+            <input
+              value={patientQuery}
+              onChange={(event) => setPatientQuery(event.target.value)}
+              placeholder="Name, PhilSys ID, or PhilHealth ID"
+            />
+          </label>
+          <label className="field">
+            <span>Organization</span>
+            <input
+              list="remote-search-organizations"
+              value={organizationQuery}
+              onChange={(event) => setOrganizationQuery(event.target.value)}
+              placeholder="Facility name or NHFR code"
+            />
+            <datalist id="remote-search-organizations">
+              {facilities.map((facility) => (
+                <option key={facility.id} value={facility.name} />
+              ))}
+            </datalist>
+          </label>
+          <label className="field">
+            <span>ServiceRequest status</span>
+            <select
+              value={serviceStatus}
+              onChange={(event) => setServiceStatus(event.target.value)}
+            >
+              <option value="">Any</option>
+              <option value="active">Active</option>
+              <option value="completed">Completed</option>
+              <option value="revoked">Revoked</option>
+              <option value="entered-in-error">Entered in error</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Task status</span>
+            <select value={taskStatus} onChange={(event) => setTaskStatus(event.target.value)}>
+              <option value="">Any</option>
+              <option value="requested">Requested</option>
+              <option value="received">Received</option>
+              <option value="accepted">Accepted</option>
+              <option value="rejected">Rejected</option>
+              <option value="in-progress">In progress</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </label>
+        </div>
+        <div className="button-row">
+          <button type="button" onClick={search} disabled={loading}>
+            {loading ? "Loading..." : "Search server referrals"}
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              setPatientQuery("");
+              setOrganizationQuery("");
+              setServiceStatus("");
+              setTaskStatus("");
+              setResults([]);
+              setAggregate(null);
+              setMessage("");
+            }}
+          >
+            Clear filters
+          </button>
         </div>
         {message ? <p>{message}</p> : null}
       </section>
@@ -126,6 +138,7 @@ export function RetrieveReferral() {
                   <div>
                     <strong>{requisition?.value ?? resource.id}</strong>
                     <span>Status: {String(resource.status ?? "unknown")}</span>
+                    <span>Patient: {String((resource.subject as { reference?: string } | undefined)?.reference ?? "-")}</span>
                   </div>
                   <button type="button" className="secondary" onClick={() => openReferral(resource)}>Open clinical summary</button>
                 </article>

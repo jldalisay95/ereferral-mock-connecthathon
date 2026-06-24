@@ -7,10 +7,10 @@ import { localRepository } from "./localRepository";
 describe("versioned local repository", () => {
   beforeEach(() => localStorage.clear());
 
-  it("defaults to Demo mode, seeded patients, and persists sessions", () => {
+  it("defaults to live server mode, seeded patients, and persists sessions", () => {
     const state = localRepository.load();
     expect(state.version).toBe(3);
-    expect(state.settings.demoMode).toBe(true);
+    expect(state.settings.demoMode).toBe(false);
     expect(state.patients.length).toBeGreaterThanOrEqual(3);
     const next = localRepository.setSession(state, {
       userId: "user-kalibo",
@@ -182,7 +182,7 @@ describe("versioned local repository", () => {
     expect(normalized.draft.receivingPractitioner).toBeUndefined();
     expect(
       (normalized.fhirBundle.entry as unknown[]).length
-    ).toBe(18);
+    ).toBe(19);
   });
 
   it("migrates stale South Cotabato PSGC codes to the current hierarchy", () => {

@@ -15,6 +15,19 @@ import type { Notification } from "../types";
 describe("contextual facility referral records", () => {
   beforeEach(() => localStorage.clear());
 
+  it("includes Mock EMR eReferral as a facility account", () => {
+    const facility = FACILITIES.find((item) => item.id === "org-mock-emr-ereferral");
+    const account = DEMO_ACCOUNTS.find((item) => item.username === "mockemr");
+    expect(facility?.organization.name).toBe("Mock EMR eReferral");
+    expect(account).toEqual(
+      expect.objectContaining({
+        role: "facility_user",
+        organizationId: "org-mock-emr-ereferral",
+        practitionerRoleId: "practitioner-role-mock-emr-ereferral"
+      })
+    );
+  });
+
   it("creates and updates a draft owned by the initiating facility", () => {
     const draft = createDemoDraft(FACILITIES[0], FACILITIES[1], DEMO_PATIENTS[0]);
     const record = createDraftRecord(draft, DEMO_ACCOUNTS[0], FACILITIES[1].id);
@@ -41,7 +54,9 @@ describe("contextual facility referral records", () => {
     expect(referralsForAccount([sent, received], DEMO_ACCOUNTS[0])).toHaveLength(2);
     expect(sentReferralsForAccount([sent, received], DEMO_ACCOUNTS[0])).toEqual([sent]);
     expect(incomingReferralsForAccount([sent, received], DEMO_ACCOUNTS[0])).toEqual([received]);
-    expect(referralsForAccount([sent, received], DEMO_ACCOUNTS[3])).toHaveLength(2);
+    const admin = DEMO_ACCOUNTS.find((account) => account.role === "admin");
+    expect(admin).toBeDefined();
+    expect(referralsForAccount([sent, received], admin!)).toHaveLength(2);
   });
 
   it("supports South Cotabato as both an initiating and receiving facility", () => {
@@ -88,6 +103,8 @@ describe("contextual facility referral records", () => {
         (item) => item.id
       )
     ).toEqual(["one"]);
-    expect(notificationsForAccount(notifications, DEMO_ACCOUNTS[3])).toHaveLength(2);
+    const admin = DEMO_ACCOUNTS.find((account) => account.role === "admin");
+    expect(admin).toBeDefined();
+    expect(notificationsForAccount(notifications, admin!)).toHaveLength(2);
   });
 });

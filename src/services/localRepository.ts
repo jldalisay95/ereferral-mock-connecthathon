@@ -17,6 +17,8 @@ import type {
   AddressInput,
   CodingInput,
   EndpointConfig,
+  FacilityAccount,
+  FacilityDefinition,
   Notification,
   PatientRecord,
   PersistedAppState,
@@ -48,14 +50,13 @@ function readJson<T>(key: string, fallback: T): T {
 function buildSession(value: Partial<AppSession> | null | undefined): AppSession | null {
   if (!value?.userId) return null;
   const account = findAccount(value.userId);
-  if (!account) return null;
   return {
-    userId: account.id,
-    username: account.username,
-    displayName: account.displayName,
-    role: account.role,
-    facilityId: account.organizationId,
-    facilityName: account.organizationName,
+    userId: account?.id ?? value.userId,
+    username: account?.username ?? value.username ?? "",
+    displayName: account?.displayName ?? value.displayName ?? "",
+    role: account?.role ?? value.role ?? "facility_user",
+    facilityId: account?.organizationId ?? value.facilityId ?? "",
+    facilityName: account?.organizationName ?? value.facilityName ?? "",
     loggedInAt: value.loggedInAt ?? new Date().toISOString()
   };
 }
@@ -293,10 +294,12 @@ function migrateVersion2(value: Record<string, unknown>): PersistedAppState {
       version: 3,
       ...DEFAULT_ENDPOINTS,
       ...oldSettings,
-      demoMode: oldSettings.demoMode ?? true
+      demoMode: oldSettings.demoMode ?? DEFAULT_ENDPOINTS.demoMode
     },
     activeDraftIds:
       (value.activeDraftIds as Record<string, string> | undefined) ?? {},
+    registeredFacilities: [],
+    registeredAccounts: [],
     patients: patientsFromReferrals(referrals).map(normalizePatientRecord),
     referrals,
     notifications: (
@@ -385,9 +388,11 @@ function createInitialState(): PersistedAppState {
       version: 3,
       ...DEFAULT_ENDPOINTS,
       ...legacyEndpoints,
-      demoMode: legacyEndpoints.demoMode ?? true
+      demoMode: legacyEndpoints.demoMode ?? DEFAULT_ENDPOINTS.demoMode
     },
     activeDraftIds: {},
+    registeredFacilities: [],
+    registeredAccounts: [],
     patients: patientsFromReferrals(referrals),
     referrals,
     notifications: []
@@ -406,9 +411,15 @@ function normalizeState(value: PersistedAppState): PersistedAppState {
       ...DEFAULT_ENDPOINTS,
       ...value.settings,
       version: 3,
-      demoMode: value.settings?.demoMode ?? true
+      demoMode: value.settings?.demoMode ?? DEFAULT_ENDPOINTS.demoMode
     },
     activeDraftIds: value.activeDraftIds ?? {},
+    registeredFacilities: Array.isArray(value.registeredFacilities)
+      ? (value.registeredFacilities as FacilityDefinition[])
+      : [],
+    registeredAccounts: Array.isArray(value.registeredAccounts)
+      ? (value.registeredAccounts as FacilityAccount[])
+      : [],
     patients: (
       value.patients?.length ? value.patients : patientsFromReferrals(referrals)
     ).map(normalizePatientRecord),

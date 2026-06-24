@@ -10,7 +10,6 @@ import { createDemoDraft } from "../../data/demo";
 import { FACILITIES } from "../../data/facilities";
 import { DEMO_PATIENTS } from "../../data/patients";
 import {
-  buildBloodPressureObservation,
   buildDiagnosticReport,
   buildEncounter,
   buildPatient,
@@ -85,33 +84,20 @@ describe("PHeRef builders", () => {
     ]);
   });
 
-  it("builds blood pressure with published LOINC and UCUM codes", () => {
+  it("builds blood pressure as scalar Observations with published LOINC and UCUM codes", () => {
     const draft = createDemoDraft();
     const bundle = buildReferralTransactionBundle(draft);
-    const encounterEntry = (bundle.entry as Array<Record<string, unknown>>).find(
-      (entry) => (entry.resource as { resourceType?: string }).resourceType === "Encounter"
-    );
-    const refs = {
-      patient: "urn:uuid:patient",
-      encounter: String(encounterEntry?.fullUrl),
-      referringPractitioner: "",
-      receivingPractitioner: "",
-      initiatingOrganization: "",
-      receivingOrganization: "",
-      referringRole: "",
-      receivingRole: "",
-      serviceRequest: "",
-      chiefComplaint: "",
-      workingImpression: "",
-      observations: [],
-      procedure: "",
-      diagnosticReport: "",
-      task: "",
-      provenance: ""
-    };
-    const observation = buildBloodPressureObservation(draft, refs);
-    expect((observation.code as { coding: Array<{ code: string }> }).coding[0].code).toBe("85354-9");
-    expect(JSON.stringify(observation)).toContain("mm[Hg]");
+    const observations = (bundle.entry as Array<{ resource: Record<string, unknown> }>)
+      .map((entry) => entry.resource)
+      .filter((resource) => resource.resourceType === "Observation");
+    const serialized = JSON.stringify(observations);
+    expect(observations).toHaveLength(7);
+    expect(serialized).toContain("8480-6");
+    expect(serialized).toContain("8462-4");
+    expect(serialized).toContain("mm[Hg]");
+    expect(serialized).not.toContain("85354-9");
+    expect(serialized).not.toContain("\"component\"");
+    expect(serialized).not.toContain("ph-core-observation");
   });
 
   it("uses the current Connectathon PSGC canonical", () => {
@@ -148,7 +134,7 @@ describe("PHeRef builders", () => {
     expect(buildDiagnosticReport).toBeTypeOf("function");
   });
 
-  it("omits DiagnosticReport attachment contentType when only synthetic text is available", () => {
+  it("avoids empty DiagnosticReport attachment metadata for synthetic reports", () => {
     const report = buildDiagnosticReport(createDemoDraft(), {
       patient: "urn:uuid:patient",
       encounter: "urn:uuid:encounter",
@@ -167,9 +153,8 @@ describe("PHeRef builders", () => {
       task: "",
       provenance: ""
     });
-    expect(
-      (report.presentedForm as Array<Record<string, unknown>>)[0]
-    ).not.toHaveProperty("contentType");
+    expect(report.code).toEqual({ text: "Synthetic urinalysis summary" });
+    expect(report).not.toHaveProperty("presentedForm");
   });
 
   it("uses validator-compatible Encounter and Provenance signature fields", () => {
@@ -192,7 +177,7 @@ describe("PHeRef builders", () => {
       task: "",
       provenance: ""
     };
-    expect(buildEncounter(draft, refs).status).toBe("completed");
+    expect(buildEncounter(draft, refs).status).toBe("finished");
     const provenance = buildProvenance(draft, refs);
     expect(
       (
@@ -208,17 +193,17 @@ describe("PHeRef builders", () => {
     );
   });
 
-  it("builds 21 entries with seven conditional PUTs, fourteen POSTs, and valid urn references", () => {
+  it("builds 22 entries with seven conditional PUTs, fifteen POSTs, and valid urn references", () => {
     const bundle = buildReferralTransactionBundle(createDemoDraft());
     const entries = bundle.entry as Array<{
       fullUrl: string;
       request: { method: string; url: string };
       resource: unknown;
     }>;
-    expect(entries).toHaveLength(21);
-    expect(new Set(entries.map((entry) => entry.fullUrl)).size).toBe(21);
+    expect(entries).toHaveLength(22);
+    expect(new Set(entries.map((entry) => entry.fullUrl)).size).toBe(22);
     expect(entries.filter((entry) => entry.request.method === "PUT")).toHaveLength(7);
-    expect(entries.filter((entry) => entry.request.method === "POST")).toHaveLength(14);
+    expect(entries.filter((entry) => entry.request.method === "POST")).toHaveLength(15);
 
     const fullUrls = new Set(entries.map((entry) => entry.fullUrl));
     const references = JSON.stringify(entries.map((entry) => entry.resource)).match(/urn:uuid:[a-f0-9-]+/g) ?? [];
@@ -321,7 +306,7 @@ describe("PHeRef builders", () => {
       resource: Record<string, unknown>;
       request: { method: string; url: string };
     }>;
-    expect(entries).toHaveLength(18);
+    expect(entries).toHaveLength(19);
     expect(
       entries.filter(
         (entry) => entry.resource.resourceType === "Practitioner"
@@ -344,10 +329,11 @@ describe("PHeRef builders", () => {
       (entry) => entry.resource.resourceType === "Task"
     )?.resource;
     expect(JSON.stringify(serviceRequest)).toContain(
-      draft.receivingFacility.fhirReference
+      "Organization/server-hospital"
     );
-    expect(JSON.stringify(task)).toContain(
-      draft.receivingFacility.fhirReference
+    expect(JSON.stringify(task)).toContain("Organization/server-hospital");
+    expect(JSON.stringify(bundle)).not.toContain(
+      "https://cdr.pheref.fhirlab.net/fhir/Organization/server-hospital"
     );
   });
 });

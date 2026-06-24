@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseReference } from "./referralRetrieval";
-import { parseTransactionResponse } from "./fhirClient";
+import { parseTransactionResponse, validateBundleDetailed } from "./fhirClient";
 import { buildExpandUrl } from "./terminologyClient";
 
 describe("service helpers", () => {
@@ -37,5 +37,44 @@ describe("service helpers", () => {
       id: "456"
     });
     expect(parseReference("urn:uuid:abc")).toBeNull();
+  });
+
+  it("wraps validation payloads in Parameters for HAPI $validate", async () => {
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ url: string; body: unknown }> = [];
+    globalThis.fetch = (async (input, init) => {
+      calls.push({
+        url: String(input),
+        body: JSON.parse(String(init?.body))
+      });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ resourceType: "OperationOutcome", issue: [] })
+      } as Response;
+    }) as typeof fetch;
+    try {
+      await validateBundleDetailed("https://server.test/fhir", {
+        resourceType: "Bundle",
+        type: "transaction",
+        entry: []
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(calls[0].url).toBe("https://server.test/fhir/Bundle/$validate");
+    expect(calls[0].body).toEqual({
+      resourceType: "Parameters",
+      parameter: [
+        {
+          name: "resource",
+          resource: {
+            resourceType: "Bundle",
+            type: "transaction",
+            entry: []
+          }
+        }
+      ]
+    });
   });
 });

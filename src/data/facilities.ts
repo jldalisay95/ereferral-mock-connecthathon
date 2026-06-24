@@ -95,6 +95,26 @@ export const FACILITIES: FacilityDefinition[] = [
       license: "SYN-PRC-3456789",
       role: medicalPractitioner
     }
+  },
+  {
+    id: "org-mock-emr-ereferral",
+    name: "Mock EMR eReferral",
+    practitionerRoleId: "practitioner-role-mock-emr-ereferral",
+    organization: {
+      name: "Mock EMR eReferral",
+      nhfrCode: "SYN-MOCK-EMR-001",
+      hcpnName: "Connectathon Demo HCPN",
+      phone: "(02) 0000-1000",
+      address: { ...aklanAddress, line: "Connectathon Demo Site" },
+      source: "local"
+    },
+    practitioner: {
+      prefix: "Dr.",
+      given: "Elena",
+      family: "Reyes",
+      license: "SYN-PRC-1000001",
+      role: medicalPractitioner
+    }
   }
 ];
 
@@ -128,6 +148,16 @@ export const DEMO_ACCOUNTS: FacilityAccount[] = [
     organizationId: "org-south-cotabato",
     organizationName: "South Cotabato Demo Facility",
     practitionerRoleId: "practitioner-role-south-cotabato"
+  },
+  {
+    id: "user-mock-emr-ereferral",
+    username: "mockemr",
+    password: "demo123",
+    displayName: "Mock EMR eReferral User",
+    role: "facility_user",
+    organizationId: "org-mock-emr-ereferral",
+    organizationName: "Mock EMR eReferral",
+    practitionerRoleId: "practitioner-role-mock-emr-ereferral"
   },
   {
     id: "user-admin",

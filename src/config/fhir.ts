@@ -7,7 +7,7 @@ export const DEFAULT_ENDPOINTS: EndpointConfig = {
     import.meta.env.VITE_PHCORE_BASE_URL ?? "https://cdr.phcore.fhirlab.net/fhir",
   terminologyBaseUrl:
     import.meta.env.VITE_TX_BASE_URL ?? "https://tx.fhirlab.net/fhir",
-  demoMode: true
+  demoMode: false
 };
 
 export const PROFILES = {

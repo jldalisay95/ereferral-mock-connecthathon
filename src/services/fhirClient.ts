@@ -21,6 +21,18 @@ export interface DetailedValidationResult {
   outcome?: FhirResource;
 }
 
+function validationParameters(resource: FhirResource): FhirResource {
+  return {
+    resourceType: "Parameters",
+    parameter: [
+      {
+        name: "resource",
+        resource
+      }
+    ]
+  };
+}
+
 async function request(
   url: string,
   init: RequestInit = {}
@@ -58,7 +70,7 @@ export async function validateResourceDetailed(
   try {
     const result = await request(
       `${baseUrl.replace(/\/$/, "")}/${resourceType}/$validate`,
-      { method: "POST", body: JSON.stringify(resource) }
+      { method: "POST", body: JSON.stringify(validationParameters(resource)) }
     );
     return {
       summary: parseOperationOutcome(result.resource, result.status),

@@ -30,11 +30,25 @@ export function ReferralPreview() {
   const [message, setMessage] = useState("");
 
   if (!draft || !bundle || !activeDraftRecord) {
+    if (submitting) {
+      return (
+        <div className="page-stack">
+          <div className="notice">Submitting referral transaction...</div>
+        </div>
+      );
+    }
     return <Navigate to="/referrals/new" replace />;
   }
   const currentBundle = bundle;
 
   const requiredMissing = getReferralSubmissionMissing(draft);
+  const liveMode = !endpoints.demoMode;
+  const canSubmit =
+    !submitting &&
+    !requiredMissing.length &&
+    (liveMode
+      ? validation.validated && !validation.blocking
+      : !validation.blocking || submitAnyway);
 
   async function runValidation() {
     if (requiredMissing.length) {
@@ -65,23 +79,34 @@ export function ReferralPreview() {
   async function submit() {
     if (requiredMissing.length) return;
     if (!validation.validated && !submitAnyway) {
-      setMessage("Run validation or explicitly choose Submit anyway for demo.");
+      setMessage(
+        liveMode
+          ? "Run validation before submitting to the configured FHIR server."
+          : "Run validation or explicitly choose Submit anyway for demo."
+      );
       return;
     }
     if (validation.blocking && !submitAnyway) {
-      setMessage("Blocking validation issues require an explicit demo override.");
+      setMessage(
+        liveMode
+          ? "Resolve blocking validation issues before submitting to the configured FHIR server."
+          : "Blocking validation issues require an explicit demo override."
+      );
+      return;
+    }
+    if (liveMode && submitAnyway) {
+      setMessage("Live server submission requires validation without blocking issues.");
       return;
     }
     setSubmitting(true);
     setMessage("");
     try {
       const record = await submitCurrentReferral(submitAnyway);
-      navigate(`/referrals/${record.id}`, { replace: true });
+      navigate(`/referrals/${record.id}`, { replace: true, state: { referral: record } });
     } catch (error) {
       setMessage(
         `Submission failed: ${error instanceof Error ? error.message : "Unknown error"}`
       );
-    } finally {
       setSubmitting(false);
     }
   }
@@ -112,6 +137,11 @@ export function ReferralPreview() {
       {message ? <div className="notice">{message}</div> : null}
       <ValidationPanel summary={validation} />
       <section className="card">
+        <div className={liveMode ? "notice warning" : "notice"}>
+          {liveMode
+            ? `Live mode is enabled. Submission will POST this transaction Bundle to ${endpoints.pherefBaseUrl}.`
+            : "Demo mode is enabled. Submission will stay in local mock persistence."}
+        </div>
         <div className="button-row">
           <Link className="button secondary" to="/referrals/new">Back to referral</Link>
           <button
@@ -124,20 +154,16 @@ export function ReferralPreview() {
           <button
             type="button"
             onClick={submit}
-            disabled={
-              submitting ||
-              Boolean(requiredMissing.length) ||
-              (validation.blocking && !submitAnyway)
-            }
+            disabled={!canSubmit}
           >
             {submitting
               ? "Submitting..."
               : endpoints.demoMode
                 ? "Submit to local demo"
-                : "Submit live transaction"}
+                : "Submit to FHIR server"}
           </button>
         </div>
-        {validation.blocking || !validation.validated ? (
+        {endpoints.demoMode && (validation.blocking || !validation.validated) ? (
           <label className="check-row">
             <input
               type="checkbox"

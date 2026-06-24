@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { Link, Navigate, useParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useParams } from "react-router-dom";
 import { JsonPanel } from "../components/JsonPanel";
 import { ReferralTimeline } from "../components/ReferralTimeline";
 import { StatusBadge } from "../components/StatusBadge";
 import { ValidationPanel } from "../components/ValidationPanel";
 import { useAppContext } from "../context/useAppContext";
 import { findResource } from "../services/demoFhir";
-import type { TaskTransition } from "../types";
+import type { ReferralRecord, TaskTransition } from "../types";
 
 function formatDateTime(value: unknown) {
   if (typeof value !== "string") return "-";
@@ -40,6 +40,7 @@ function ageFromBirthDate(value: string) {
 
 export function ReferralDetail() {
   const { id } = useParams();
+  const location = useLocation();
   const {
     currentAccount,
     facilities,
@@ -48,7 +49,12 @@ export function ReferralDetail() {
     transitionReferral,
     refreshReferral
   } = useAppContext();
-  const referral = id ? getReferral(id) : undefined;
+  const navigatedReferral = (
+    location.state as { referral?: ReferralRecord } | null
+  )?.referral;
+  const referral = id
+    ? getReferral(id) ?? (navigatedReferral?.id === id ? navigatedReferral : undefined)
+    : undefined;
   const [transition, setTransition] = useState<TaskTransition>("received");
   const [note, setNote] = useState("");
   const [forwardingFacilityId, setForwardingFacilityId] = useState("");
