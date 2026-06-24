@@ -1,8 +1,9 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useAppContext } from "../context/useAppContext";
+import { NotificationBell } from "./NotificationBell";
 
 export function Layout() {
-  const { currentAccount, unreadNotificationCount, logout } = useAppContext();
+  const { currentAccount, unreadNotificationCount, logout, endpoints } = useAppContext();
   if (!currentAccount) return null;
 
   const facilityUser = currentAccount.role === "facility_user";
@@ -25,15 +26,19 @@ export function Layout() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div>
+        <div className="brand-block">
           <p className="eyebrow">Connectathon eReferral Demo</p>
-          <h1>Local Referral EMR</h1>
+          <h1>Local eReferral Mock</h1>
+          <span className={`mode-pill ${endpoints.demoMode ? "demo" : "live"}`}>
+            {endpoints.demoMode ? "Demo mode" : "Live server mode"}
+          </span>
         </div>
         <div className="account-panel">
-          <span className="synthetic-badge">Synthetic data only</span>
+          <NotificationBell />
           <div>
             <strong>{currentAccount.displayName}</strong>
             <small>{currentAccount.organizationName}</small>
+            <small>{currentAccount.role === "admin" ? "Administrator" : "Facility user"}</small>
           </div>
           <button type="button" className="secondary compact" onClick={logout}>
             Logout

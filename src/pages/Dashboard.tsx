@@ -77,12 +77,12 @@ export function Dashboard() {
       </section>
 
       <section className="metric-grid">
-        <Metric label="Sent referrals" value={sentReferrals.length} />
-        <Metric label="Incoming referrals" value={incomingReferrals.length} />
-        <Metric label="Unread notifications" value={unreadNotificationCount} accent />
-        <Metric label="Requested" value={count(scopedReferrals, "requested")} />
-        <Metric label="In progress" value={count(scopedReferrals, "received", "accepted", "in-progress")} />
-        <Metric label="Closed" value={count(scopedReferrals, "completed", "rejected")} />
+        <Metric label="Sent referrals" value={sentReferrals.length} helper="Created by this facility" to="/referrals/sent" />
+        <Metric label="Incoming referrals" value={incomingReferrals.length} helper="Assigned to this facility" to="/referrals/incoming" />
+        <Metric label="Unread notifications" value={unreadNotificationCount} helper="Needs review" accent to="/referrals/incoming" />
+        <Metric label="Requested" value={count(scopedReferrals, "requested")} helper="Awaiting receiving action" />
+        <Metric label="In progress" value={count(scopedReferrals, "received", "accepted", "in-progress")} helper="Being handled" />
+        <Metric label="Closed" value={count(scopedReferrals, "completed", "rejected")} helper="Completed or rejected" />
       </section>
 
       <section className="card">
@@ -153,16 +153,22 @@ export function Dashboard() {
 function Metric({
   label,
   value,
-  accent = false
+  helper,
+  accent = false,
+  to
 }: {
   label: string;
   value: number;
+  helper?: string;
   accent?: boolean;
+  to?: string;
 }) {
-  return (
+  const content = (
     <article className={`metric-card ${accent ? "accent" : ""}`}>
       <strong>{value}</strong>
       <span>{label}</span>
+      {helper ? <small>{helper}</small> : null}
     </article>
   );
+  return to ? <Link className="metric-link" to={to}>{content}</Link> : content;
 }

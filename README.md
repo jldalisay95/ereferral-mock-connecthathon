@@ -199,6 +199,14 @@ facility. Receiving-side updates create a notification for the initiating
 facility. Notifications persist in localStorage and are limited to the current
 browser profile.
 
+The `ui-polish-notification-sound` branch adds a header notification bell with
+an unread badge, a recent-notification dropdown, and a subtle Web Audio chime
+for newly arriving unread notifications. The chime is generated locally, does
+not loop, and may be blocked by the browser until the user interacts with the
+page. Users can mute or unmute notification sound from the notification
+dropdown; the preference is stored in localStorage. Visual badges and unread
+styles remain available whether sound is on or off.
+
 The timeline records assessment, criteria, consent, draft creation, validation,
 submission, receiving responses, care states, closure, and update failures.
 

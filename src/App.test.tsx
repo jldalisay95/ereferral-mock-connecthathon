@@ -33,7 +33,7 @@ describe("application workflow", () => {
     const user = userEvent.setup();
     render(<App />);
     expect(
-      screen.getByRole("heading", { name: "Local EMR eReferral Mock" })
+      screen.getByRole("heading", { name: "Connectathon eReferral Demo" })
     ).toBeInTheDocument();
     await user.type(screen.getByLabelText("Username"), "kalibo");
     await user.type(screen.getByLabelText("Password"), "wrong");
@@ -41,9 +41,9 @@ describe("application workflow", () => {
     expect(screen.getByText("Invalid username or password.")).toBeInTheDocument();
     await login(user, "kalibo");
     expect(
-      screen.getByRole("heading", { name: "Local Referral EMR" })
+      screen.getByRole("heading", { name: "Local eReferral Mock" })
     ).toBeInTheDocument();
-    expect(screen.getByText("Synthetic data only")).toBeInTheDocument();
+    expect(screen.getByText(/Never use real patient data/)).toBeInTheDocument();
   });
 
   it("submits to the FHIR server, notifies the receiver, and updates Task status", async () => {

@@ -29,8 +29,11 @@ export function Login() {
     <main className="login-shell">
       <section className="login-card">
         <p className="eyebrow">June 2026 Philippines FHIR Connectathon</p>
-        <h1>Local EMR eReferral Mock</h1>
-        <p>Sign in with a synthetic facility account.</p>
+        <h1>Connectathon eReferral Demo</h1>
+        <p>
+          Use a demo facility account to test sending, receiving, and tracking
+          referrals.
+        </p>
         {message ? <div className="notice danger">{message}</div> : null}
         <form onSubmit={submit} className="login-form">
           <label className="field">
@@ -65,7 +68,8 @@ export function Login() {
                 setMessage("");
               }}
             >
-              {account.username}
+              <strong>{account.username}</strong>
+              <small>{account.role === "admin" ? "Admin" : account.organizationName}</small>
             </button>
           ))}
         </div>

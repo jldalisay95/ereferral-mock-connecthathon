@@ -13,21 +13,19 @@ export function ReferralTable({
   emptyMessage = "No referrals match the current view.",
   unreadReferralIds = new Set()
 }: ReferralTableProps) {
-  if (!referrals.length) return <p>{emptyMessage}</p>;
+  if (!referrals.length) return <p className="empty-state">{emptyMessage}</p>;
   return (
     <div className="table-wrap">
-      <table>
+      <table className="referral-table">
         <thead>
           <tr>
             <th>Referral ID</th>
-            <th>Date / time</th>
             <th>Patient</th>
             <th>From</th>
             <th>To</th>
             <th>Reason</th>
-            <th>Priority</th>
-            <th>Status</th>
             <th>Updated</th>
+            <th>Status</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -37,21 +35,23 @@ export function ReferralTable({
               key={referral.id}
               className={unreadReferralIds.has(referral.id) ? "unread-row" : ""}
             >
-              <td>
+              <td data-label="Referral ID">
                 {unreadReferralIds.has(referral.id) ? <span className="new-dot" /> : null}
                 <code>{referral.localReferralId}</code>
+                <small>{new Date(referral.draft.authoredOn || referral.createdAt).toLocaleString()}</small>
               </td>
-              <td>{new Date(referral.draft.authoredOn || referral.createdAt).toLocaleString()}</td>
-              <td>{referral.patientName}</td>
-              <td>{referral.referringOrganizationName}</td>
-              <td>{referral.receivingOrganizationName}</td>
-              <td>{referral.reason}</td>
-              <td>{referral.priority}</td>
-              <td><StatusBadge status={referral.status} /></td>
-              <td>{new Date(referral.updatedAt).toLocaleString()}</td>
-              <td>
+              <td data-label="Patient"><strong>{referral.patientName}</strong></td>
+              <td data-label="From">{referral.referringOrganizationName}</td>
+              <td data-label="To">{referral.receivingOrganizationName}</td>
+              <td data-label="Reason">
+                {referral.reason}
+                <small>Priority: {referral.priority}</small>
+              </td>
+              <td data-label="Updated">{new Date(referral.updatedAt).toLocaleString()}</td>
+              <td data-label="Status"><StatusBadge status={referral.status} /></td>
+              <td data-label="Actions">
                 <div className="table-actions">
-                  <Link to={`/referrals/${referral.id}`}>View</Link>
+                  <Link className="button compact" to={`/referrals/${referral.id}`}>View</Link>
                   <Link to={`/referrals/${referral.id}/print`}>Print</Link>
                 </div>
               </td>
