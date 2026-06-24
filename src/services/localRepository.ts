@@ -184,7 +184,16 @@ function normalizeDraft(value: Partial<ReferralDraft> & Record<string, unknown>)
     patientRecordId: value.patientRecordId ?? "",
     timeCalled: value.timeCalled ?? value.authoredOn ?? fallback.timeCalled,
     patient: normalizePatient(value.patient),
-    requestedService: value.requestedService ?? legacyService ?? fallback.requestedService,
+    referralCategory: matchingCoding(
+      value.referralCategory,
+      REFERRAL_CATEGORY_OPTIONS,
+      fallback.referralCategory
+    ),
+    requestedService: matchingCoding(
+      value.requestedService ?? legacyService,
+      REQUESTED_SERVICE_OPTIONS,
+      fallback.requestedService
+    ),
     clinicalReason: matchingCoding(
       value.clinicalReason ?? value.workingImpression,
       CLINICAL_REASON_OPTIONS,
@@ -201,20 +210,6 @@ function normalizeDraft(value: Partial<ReferralDraft> & Record<string, unknown>)
     consentGiven: value.consentGiven ?? false,
     consentStatement: value.consentStatement ?? fallback.consentStatement
   };
-  if (
-    !REFERRAL_CATEGORY_OPTIONS.some(
-      (option) => option.code === draft.referralCategory.code
-    )
-  ) {
-    draft.referralCategory = { ...REFERRAL_CATEGORY_OPTIONS[0] };
-  }
-  if (
-    !REQUESTED_SERVICE_OPTIONS.some(
-      (option) => option.code === draft.requestedService.code
-    )
-  ) {
-    draft.requestedService = { ...REQUESTED_SERVICE_OPTIONS[0] };
-  }
   return draft;
 }
 

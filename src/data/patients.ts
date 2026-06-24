@@ -67,11 +67,7 @@ export const DEMO_PATIENTS: PatientRecord[] = [
         psgcVersion: PSGC_VERSION
       },
       contactName: "Ramon Dela Cruz",
-      contactRelationship: {
-        system: "http://terminology.hl7.org/CodeSystem/v3-RoleCode",
-        code: "SPS",
-        display: "spouse"
-      },
+      contactRelationship: { ...RELATIONSHIP_OPTIONS[0] },
       contactPhone: "+63-900-000-0002"
     },
     notes: "Synthetic Connectathon patient.",

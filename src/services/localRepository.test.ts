@@ -57,8 +57,13 @@ describe("versioned local repository", () => {
     const draft = createDemoDraft();
     draft.referralCategory = {
       system: "http://snomed.info/sct",
-      code: "409063005",
-      display: "Counselling"
+      code: "440655000",
+      display: "Outpatient"
+    };
+    draft.requestedService = {
+      system: "http://snomed.info/sct",
+      code: "165197003",
+      display: "Diagnostics"
     };
     const record = createDraftRecord(
       draft,
@@ -83,10 +88,21 @@ describe("versioned local repository", () => {
       })
     );
     const state = localRepository.load();
-    expect(state.referrals[0].draft.referralCategory.code).toBe("73770003");
-    expect(JSON.stringify(state.referrals[0].fhirBundle)).toContain("73770003");
+    expect(state.referrals[0].draft.referralCategory).toEqual(
+      expect.objectContaining({
+        code: "440655000",
+        display: "Outpatient environment"
+      })
+    );
+    expect(state.referrals[0].draft.requestedService).toEqual(
+      expect.objectContaining({
+        code: "165197003",
+        display: "Diagnostic assessment"
+      })
+    );
+    expect(JSON.stringify(state.referrals[0].fhirBundle)).toContain("440655000");
     expect(JSON.stringify(state.referrals[0].fhirBundle)).not.toContain(
-      "409063005"
+      "Outpatient\""
     );
   });
 
@@ -124,8 +140,12 @@ describe("versioned local repository", () => {
       })
     );
     const state = localRepository.load();
-    expect(state.referrals[0].draft.patient.contactRelationship.display).toBe(
-      "spouse"
+    expect(state.referrals[0].draft.patient.contactRelationship).toEqual(
+      expect.objectContaining({
+        system: "http://terminology.hl7.org/CodeSystem/v2-0131",
+        code: "N",
+        display: "Next-of-Kin"
+      })
     );
     expect(state.referrals[0].draft.patient.disabilities[0].display).toBe(
       "Hearing Disability"

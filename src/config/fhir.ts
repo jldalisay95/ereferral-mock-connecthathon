@@ -66,7 +66,7 @@ export const REFERRAL_CATEGORY_OPTIONS = [
   {
     system: "http://snomed.info/sct",
     code: "440655000",
-    display: "Outpatient"
+    display: "Outpatient environment"
   }
 ] as const;
 
@@ -79,7 +79,7 @@ export const REQUESTED_SERVICE_OPTIONS = [
   {
     system: "http://snomed.info/sct",
     code: "165197003",
-    display: "Diagnostics"
+    display: "Diagnostic assessment"
   },
   {
     system: "http://snomed.info/sct",
@@ -139,55 +139,30 @@ export const CLINICAL_REASON_OPTIONS: readonly CodingInput[] = [
 
 export const RELATIONSHIP_OPTIONS: readonly CodingInput[] = [
   {
-    system: "http://terminology.hl7.org/CodeSystem/v3-RoleCode",
-    code: "NOK",
-    display: "next of kin"
+    system: "http://terminology.hl7.org/CodeSystem/v2-0131",
+    code: "N",
+    display: "Next-of-Kin"
   },
   {
-    system: "http://terminology.hl7.org/CodeSystem/v3-RoleCode",
-    code: "ECON",
-    display: "emergency contact"
+    system: "http://terminology.hl7.org/CodeSystem/v2-0131",
+    code: "C",
+    display: "Emergency Contact"
   },
   {
-    system: "http://terminology.hl7.org/CodeSystem/v3-RoleCode",
-    code: "GUARD",
-    display: "guardian"
+    system: "http://terminology.hl7.org/CodeSystem/v2-0131",
+    code: "E",
+    display: "Employer"
   },
   {
-    system: "http://terminology.hl7.org/CodeSystem/v3-RoleCode",
-    code: "FAMMEMB",
-    display: "family member"
+    system: "http://terminology.hl7.org/CodeSystem/v2-0131",
+    code: "I",
+    display: "Insurance Company"
   },
   {
-    system: "http://terminology.hl7.org/CodeSystem/v3-RoleCode",
-    code: "PRN",
-    display: "parent"
+    system: "http://terminology.hl7.org/CodeSystem/v2-0131",
+    code: "U",
+    display: "Unknown"
   },
-  {
-    system: "http://terminology.hl7.org/CodeSystem/v3-RoleCode",
-    code: "FTH",
-    display: "father"
-  },
-  {
-    system: "http://terminology.hl7.org/CodeSystem/v3-RoleCode",
-    code: "MTH",
-    display: "mother"
-  },
-  {
-    system: "http://terminology.hl7.org/CodeSystem/v3-RoleCode",
-    code: "SPS",
-    display: "spouse"
-  },
-  {
-    system: "http://terminology.hl7.org/CodeSystem/v3-RoleCode",
-    code: "CHILD",
-    display: "child"
-  },
-  {
-    system: "http://terminology.hl7.org/CodeSystem/v3-RoleCode",
-    code: "FRND",
-    display: "unrelated friend"
-  }
 ];
 
 export const PWD_DISABILITY_OPTIONS: readonly CodingInput[] = [

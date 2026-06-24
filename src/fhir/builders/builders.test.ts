@@ -12,8 +12,10 @@ import { DEMO_PATIENTS } from "../../data/patients";
 import {
   buildBloodPressureObservation,
   buildDiagnosticReport,
+  buildEncounter,
   buildPatient,
-  buildReferralTransactionBundle
+  buildReferralTransactionBundle,
+  buildProvenance
 } from ".";
 
 describe("PHeRef builders", () => {
@@ -28,6 +30,21 @@ describe("PHeRef builders", () => {
       ])
     );
     expect(JSON.stringify(patient)).toContain("SYN-");
+  });
+
+  it("uses validation-friendly contact relationship coding", () => {
+    const patient = buildPatient(createDemoDraft());
+    const contact = (
+      patient.contact as Array<{
+        relationship: Array<{ coding: Array<{ system: string; code: string }> }>;
+      }>
+    )[0];
+    expect(contact.relationship[0].coding[0]).toEqual(
+      expect.objectContaining({
+        system: "http://terminology.hl7.org/CodeSystem/v2-0131",
+        code: "N"
+      })
+    );
   });
 
   it("adds the exact nested PWD extension only when enabled", () => {
@@ -129,6 +146,66 @@ describe("PHeRef builders", () => {
     )?.resource;
     expect(diagnosticReport?.meta).toBeUndefined();
     expect(buildDiagnosticReport).toBeTypeOf("function");
+  });
+
+  it("omits DiagnosticReport attachment contentType when only synthetic text is available", () => {
+    const report = buildDiagnosticReport(createDemoDraft(), {
+      patient: "urn:uuid:patient",
+      encounter: "urn:uuid:encounter",
+      referringPractitioner: "",
+      receivingPractitioner: "",
+      initiatingOrganization: "",
+      receivingOrganization: "",
+      referringRole: "",
+      receivingRole: "",
+      serviceRequest: "",
+      chiefComplaint: "",
+      workingImpression: "",
+      observations: [],
+      procedure: "",
+      diagnosticReport: "",
+      task: "",
+      provenance: ""
+    });
+    expect(
+      (report.presentedForm as Array<Record<string, unknown>>)[0]
+    ).not.toHaveProperty("contentType");
+  });
+
+  it("uses validator-compatible Encounter and Provenance signature fields", () => {
+    const draft = createDemoDraft();
+    const refs = {
+      patient: "urn:uuid:patient",
+      encounter: "urn:uuid:encounter",
+      referringPractitioner: "",
+      receivingPractitioner: "",
+      initiatingOrganization: "urn:uuid:org",
+      receivingOrganization: "",
+      referringRole: "urn:uuid:role",
+      receivingRole: "",
+      serviceRequest: "urn:uuid:service-request",
+      chiefComplaint: "",
+      workingImpression: "",
+      observations: [],
+      procedure: "",
+      diagnosticReport: "",
+      task: "",
+      provenance: ""
+    };
+    expect(buildEncounter(draft, refs).status).toBe("completed");
+    const provenance = buildProvenance(draft, refs);
+    expect(
+      (
+        provenance.signature as Array<{
+          type: Array<{ system: string; version?: string }>;
+        }>
+      )[0].type[0]
+    ).toEqual(
+      expect.objectContaining({
+        system: "urn:iso-astm:E1762-95:2013",
+        version: "4.0.1"
+      })
+    );
   });
 
   it("builds 21 entries with seven conditional PUTs, fourteen POSTs, and valid urn references", () => {

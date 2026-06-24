@@ -220,7 +220,7 @@ export function buildEncounter(draft: ReferralDraft, refs: ReferralReferences): 
     meta: profile(PROFILES.encounter),
     language: "en",
     text: narrative(`Referral encounter for ${draft.patient.given} ${draft.patient.family}`),
-    status: "finished",
+    status: "completed",
     class: {
       system: "http://terminology.hl7.org/CodeSystem/v3-ActCode",
       code: "AMB",
@@ -501,7 +501,6 @@ export function buildDiagnosticReport(
     conclusion: draft.labConclusion,
     presentedForm: [
       {
-        contentType: "text/plain",
         title: draft.labTitle,
         data: draft.labAttachmentBase64
       }
@@ -629,6 +628,7 @@ export function buildProvenance(
         type: [
           {
             system: "urn:iso-astm:E1762-95:2013",
+            version: "4.0.1",
             code: "1.2.840.10065.1.12.1.5",
             display: "Verification Signature"
           }
