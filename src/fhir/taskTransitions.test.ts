@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { applyTaskTransition } from "./taskTransitions";
+import {
+  applyTaskTransition,
+  isReceivingResponseTransition
+} from "./taskTransitions";
 
 const task = {
   resourceType: "Task",
@@ -46,6 +49,13 @@ describe("Task transitions", () => {
     const completed = applyTaskTransition(accepted, "completed", "Completed");
     expect(completed.status).toBe("completed");
     expect(completed.businessStatus).toEqual(accepted.businessStatus);
+  });
+
+  it("distinguishes official receiving responses from local care states", () => {
+    expect(isReceivingResponseTransition("received")).toBe(true);
+    expect(isReceivingResponseTransition("referred-onward")).toBe(true);
+    expect(isReceivingResponseTransition("er-observation")).toBe(false);
+    expect(isReceivingResponseTransition("other-care")).toBe(false);
   });
 
   it("requires remarks for every workflow update", () => {

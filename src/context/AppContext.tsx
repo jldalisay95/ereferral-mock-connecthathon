@@ -13,7 +13,10 @@ import { createDemoDraft } from "../data/demo";
 import { createEmptyPatient, patientDisplayName } from "../data/patients";
 import { buildOrganization } from "../fhir/builders";
 import { emptyValidationSummary } from "../fhir/operationOutcome";
-import { applyTaskTransition } from "../fhir/taskTransitions";
+import {
+  applyTaskTransition,
+  isReceivingResponseTransition
+} from "../fhir/taskTransitions";
 import {
   parseTransactionResponse,
   readResource,
@@ -617,7 +620,10 @@ export function AppProvider({ children }: PropsWithChildren) {
       throw new Error("A facility user is required to update referral status.");
     }
     const record = state.referrals.find((item) => item.id === referralId);
-    if (!record || record.receivingOrganizationId !== currentAccount.organizationId) {
+    const assignedToCurrentFacility =
+      record?.receivingOrganizationId === currentAccount.organizationId ||
+      record?.forwardedToOrganizationId === currentAccount.organizationId;
+    if (!record || !assignedToCurrentFacility) {
       throw new Error("Referral is not assigned to the current facility.");
     }
     if (transition === "referred-onward" && !forwardingFacilityId) {
@@ -664,8 +670,14 @@ export function AppProvider({ children }: PropsWithChildren) {
         fhirResources: record.fhirResources.map((resource) =>
           resource.resourceType === "Task" ? savedTask : resource
         ),
-        forwardedToOrganizationId: forwardingFacility?.id,
-        forwardedToOrganizationName: forwardingFacility?.name,
+        forwardedToOrganizationId:
+          transition === "referred-onward"
+            ? forwardingFacility?.id
+            : record.forwardedToOrganizationId,
+        forwardedToOrganizationName:
+          transition === "referred-onward"
+            ? forwardingFacility?.name
+            : record.forwardedToOrganizationName,
         lastError: undefined,
         timeline: [
           ...record.timeline,
@@ -679,26 +691,44 @@ export function AppProvider({ children }: PropsWithChildren) {
           )
         ]
       };
-      commit((current) => ({
-        ...current,
-        referrals: current.referrals.map((item) =>
-          item.id === updated.id ? updated : item
-        ),
-        notifications: [
-          createNotification(
-            updated.id,
-            updated.referringOrganizationId,
-            `Referral ${careStatus ?? status}`,
-            `${updated.receivingOrganizationName} updated ${updated.patientName}'s referral.`
+      commit((current) => {
+        const responseNotification = isReceivingResponseTransition(transition);
+        const referrerNotification = createNotification(
+          updated.id,
+          updated.referringOrganizationId,
+          responseNotification
+            ? `Referral ${status}`
+            : `Referral tracking update: ${careStatus ?? status}`,
+          responseNotification
+            ? `${currentAccount.organizationName} recorded a ${transition} response for ${updated.patientName}'s referral.`
+            : `${currentAccount.organizationName} recorded ${careStatus ?? status} for ${updated.patientName}'s referral.`
+        );
+        const onwardNotification =
+          transition === "referred-onward" && forwardingFacility
+            ? createNotification(
+                updated.id,
+                forwardingFacility.id,
+                "Referral referred onward",
+                `${updated.receivingOrganizationName} referred ${updated.patientName}'s referral onward to ${forwardingFacility.name}.`
+              )
+            : undefined;
+        return {
+          ...current,
+          referrals: current.referrals.map((item) =>
+            item.id === updated.id ? updated : item
           ),
-          ...current.notifications.map((notification) =>
-            notification.referralId === updated.id &&
-            notification.targetOrganizationId === currentAccount.organizationId
-              ? { ...notification, read: true }
-              : notification
-          )
-        ]
-      }));
+          notifications: [
+            referrerNotification,
+            ...(onwardNotification ? [onwardNotification] : []),
+            ...current.notifications.map((notification) =>
+              notification.referralId === updated.id &&
+              notification.targetOrganizationId === currentAccount.organizationId
+                ? { ...notification, read: true }
+                : notification
+            )
+          ]
+        };
+      });
       return updated;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Task update failed.";
@@ -972,11 +1002,23 @@ export function AppProvider({ children }: PropsWithChildren) {
           : record;
       });
       const incomingIds = new Set(records.map((record) => record.id));
+      const newRecords = records.filter((record) => !existingById.has(record.id));
       return {
         ...current,
         referrals: [
           ...merged,
           ...current.referrals.filter((record) => !incomingIds.has(record.id))
+        ],
+        notifications: [
+          ...newRecords.map((record) =>
+            createNotification(
+              record.id,
+              currentAccount.organizationId,
+              "Live incoming referral found",
+              `Live referral for ${record.patientName} from ${record.referringOrganizationName} is assigned to this facility.`
+            )
+          ),
+          ...current.notifications
         ]
       };
     });

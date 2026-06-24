@@ -23,6 +23,12 @@ const careStatuses: CareStatus[] = [
   "discharged"
 ];
 
+export function isReceivingResponseTransition(
+  transition: TaskTransition
+): transition is ReceivingResponse {
+  return receivingResponses.includes(transition as ReceivingResponse);
+}
+
 export function taskStatusForTransition(transition: TaskTransition) {
   if (transition === "referred-onward") return "rejected";
   if (transition === "discharged" || transition === "completed") return "completed";
@@ -46,7 +52,7 @@ export function applyTaskTransition(
       ? [...(Array.isArray(task.note) ? task.note : []), { text: note.trim() }]
       : task.note
   };
-  if (receivingResponses.includes(transition as ReceivingResponse)) {
+  if (isReceivingResponseTransition(transition)) {
     next.businessStatus = {
       coding: [
         {

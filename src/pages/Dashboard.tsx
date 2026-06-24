@@ -82,7 +82,7 @@ export function Dashboard() {
         <Metric label="Unread notifications" value={unreadNotificationCount} accent />
         <Metric label="Requested" value={count(scopedReferrals, "requested")} />
         <Metric label="In progress" value={count(scopedReferrals, "received", "accepted", "in-progress")} />
-        <Metric label="Closed" value={count(scopedReferrals, "completed", "rejected", "referred-onward")} />
+        <Metric label="Closed" value={count(scopedReferrals, "completed", "rejected")} />
       </section>
 
       <section className="card">

@@ -147,7 +147,9 @@ export function incomingReferralsForAccount(
   if (!account) return [];
   if (account.role === "admin") return referrals;
   return referrals.filter(
-    (referral) => referral.receivingOrganizationId === account.organizationId
+    (referral) =>
+      referral.receivingOrganizationId === account.organizationId ||
+      referral.forwardedToOrganizationId === account.organizationId
   );
 }
 

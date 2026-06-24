@@ -73,10 +73,13 @@ export function ReferralDetail() {
   const task = findResource(referral.fhirResources, "Task");
   const serviceRequest = findResource(referral.fhirResources, "ServiceRequest");
   const patientResource = findResource(referral.fhirResources, "Patient");
+  const assignedToCurrentFacility =
+    referral.receivingOrganizationId === currentAccount?.organizationId ||
+    referral.forwardedToOrganizationId === currentAccount?.organizationId;
   const canUpdate =
     currentAccount?.role === "facility_user" &&
-    referral.receivingOrganizationId === currentAccount.organizationId &&
-    !["rejected", "referred-onward", "completed"].includes(referral.status);
+    assignedToCurrentFacility &&
+    !["rejected", "completed", "cancelled", "failed"].includes(referral.status);
 
   async function updateStatus() {
     if (!note.trim()) {

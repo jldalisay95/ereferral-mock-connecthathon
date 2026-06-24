@@ -77,6 +77,23 @@ describe("contextual facility referral records", () => {
     ]);
   });
 
+  it("shows referred-onward referrals as incoming for the onward facility", () => {
+    const southAccount = DEMO_ACCOUNTS[2];
+    const referredOnward = {
+      ...createDraftRecord(
+        createDemoDraft(FACILITIES[0], FACILITIES[1], DEMO_PATIENTS[0]),
+        DEMO_ACCOUNTS[0],
+        FACILITIES[1].id
+      ),
+      status: "referred-onward" as const,
+      forwardedToOrganizationId: southAccount.organizationId,
+      forwardedToOrganizationName: southAccount.organizationName
+    };
+    expect(incomingReferralsForAccount([referredOnward], southAccount)).toEqual([
+      referredOnward
+    ]);
+  });
+
   it("scopes notifications to the target facility", () => {
     const notifications: Notification[] = [
       {

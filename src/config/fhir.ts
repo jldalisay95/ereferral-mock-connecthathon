@@ -25,7 +25,7 @@ export const PROFILES = {
   task: "https://fhir.doh.gov.ph/pheref/StructureDefinition/ereferral-task",
   provenance: "https://fhir.doh.gov.ph/pheref/StructureDefinition/ereferral-provenance",
   pwdDisability:
-    "https://fhir.doh.gov.ph/pheref/StructureDefinition/ereferral-pwd-disability"
+    "https://fhir.doh.gov.ph/phcore/StructureDefinition/ph-core-pwd-disability"
 } as const;
 
 export const IDENTIFIER_SYSTEMS = {
