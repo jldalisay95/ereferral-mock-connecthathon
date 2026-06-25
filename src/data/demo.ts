@@ -62,6 +62,7 @@ export function createDemoDraft(
     labTitle: "Synthetic urinalysis summary",
     labConclusion: "Synthetic result: protein detected; specialist review requested.",
     labAttachmentBase64: btoa("SYNTHETIC LAB RESULT - NOT FOR CLINICAL USE"),
+    labAttachmentContentType: "text/plain",
     referralCriteriaSatisfied: false,
     consentGiven: false,
     consentStatement: CONSENT_STATEMENT,

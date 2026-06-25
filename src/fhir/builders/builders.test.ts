@@ -134,8 +134,40 @@ describe("PHeRef builders", () => {
     expect(buildDiagnosticReport).toBeTypeOf("function");
   });
 
-  it("avoids empty DiagnosticReport attachment metadata for synthetic reports", () => {
+  it("includes DiagnosticReport attachment data when supplied", () => {
     const report = buildDiagnosticReport(createDemoDraft(), {
+      patient: "urn:uuid:patient",
+      encounter: "urn:uuid:encounter",
+      referringPractitioner: "",
+      receivingPractitioner: "",
+      initiatingOrganization: "",
+      receivingOrganization: "",
+      referringRole: "",
+      receivingRole: "",
+      serviceRequest: "",
+      chiefComplaint: "",
+      workingImpression: "",
+      observations: [],
+      procedure: "",
+      diagnosticReport: "",
+      task: "",
+      provenance: ""
+    });
+    expect(report.code).toEqual({ text: "Synthetic urinalysis summary" });
+    expect(report.presentedForm).toEqual([
+      expect.objectContaining({
+        url: expect.stringMatching(/^data:text\/plain;base64,/),
+        title: "Synthetic urinalysis summary"
+      })
+    ]);
+    expect(JSON.stringify(report.presentedForm)).not.toContain("contentType");
+  });
+
+  it("avoids empty DiagnosticReport attachment metadata when no attachment exists", () => {
+    const draft = createDemoDraft();
+    draft.labAttachmentBase64 = "";
+    draft.labAttachmentContentType = undefined;
+    const report = buildDiagnosticReport(draft, {
       patient: "urn:uuid:patient",
       encounter: "urn:uuid:encounter",
       referringPractitioner: "",

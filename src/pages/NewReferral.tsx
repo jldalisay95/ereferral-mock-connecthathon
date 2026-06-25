@@ -111,6 +111,29 @@ export function NewReferral() {
     value: string | number
   ) => updateSection("vitals", { ...currentDraft.vitals, [key]: value });
 
+  async function updateLabAttachment(file?: File) {
+    if (!file) {
+      setDraft({
+        ...currentDraft,
+        labAttachmentBase64: "",
+        labAttachmentContentType: undefined
+      });
+      return;
+    }
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+    const [, base64 = ""] = dataUrl.split(",");
+    setDraft({
+      ...currentDraft,
+      labAttachmentBase64: base64,
+      labAttachmentContentType: file.type || "application/octet-stream"
+    });
+  }
+
   return (
     <div className="page-stack">
       <WorkflowSteps current={step} />
@@ -209,6 +232,17 @@ export function NewReferral() {
               />
             </FormField>
           </div>
+          <FormField label="Diagnostic report attachment">
+            <input
+              type="file"
+              onChange={(event) => void updateLabAttachment(event.target.files?.[0])}
+            />
+            <small>
+              {draft.labAttachmentBase64
+                ? `Attachment included in DiagnosticReport.presentedForm as ${draft.labAttachmentContentType || "application/octet-stream"}.`
+                : "No attachment selected. The DiagnosticReport title and conclusion will still be sent."}
+            </small>
+          </FormField>
           <label className="decision-row">
             <input
               type="checkbox"

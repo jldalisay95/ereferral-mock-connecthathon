@@ -201,6 +201,12 @@ export function ReferralDetail() {
           </dd>
           <dt>Treatment</dt><dd>{draft.treatment}</dd>
           <dt>Laboratory</dt><dd>{draft.labTitle}: {draft.labConclusion}</dd>
+          <dt>Diagnostic attachment</dt>
+          <dd>
+            {draft.labAttachmentBase64
+              ? `Included (${draft.labAttachmentContentType || "application/octet-stream"})`
+              : "No attachment data included"}
+          </dd>
         </dl>
       </section>
 

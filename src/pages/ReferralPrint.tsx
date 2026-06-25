@@ -82,6 +82,12 @@ export function ReferralPrint() {
               ],
               ["Treatment given", draft.treatment],
               ["Laboratory metadata", `${draft.labTitle}: ${draft.labConclusion}`],
+              [
+                "Diagnostic attachment",
+                draft.labAttachmentBase64
+                  ? `Included (${draft.labAttachmentContentType || "application/octet-stream"})`
+                  : "No attachment data included"
+              ],
               ["Notes", draft.referralNarrative],
               ["Remarks", draft.remarks || "None"]
             ]}

@@ -83,6 +83,21 @@ function firstCodeable(value: unknown, fallback: typeof SYSTEM_TEXT = SYSTEM_TEX
   };
 }
 
+function attachmentDataFromPresentedForm(
+  presentedForm: unknown
+): { data: string; contentType?: string } {
+  const attachment = Array.isArray(presentedForm)
+    ? (presentedForm[0] as { data?: string; contentType?: string; url?: string })
+    : undefined;
+  if (!attachment) return { data: "" };
+  if (attachment.data) {
+    return { data: attachment.data, contentType: attachment.contentType };
+  }
+  const match = attachment.url?.match(/^data:([^;,]+)?;base64,(.+)$/);
+  if (!match) return { data: "" };
+  return { data: match[2] ?? "", contentType: match[1] };
+}
+
 function firstIdentifier(
   resource: FhirResource | undefined,
   system: string
@@ -845,6 +860,9 @@ export function AppProvider({ children }: PropsWithChildren) {
         serviceRequest.priority === "stat"
           ? serviceRequest.priority
           : "routine";
+      const diagnosticAttachment = attachmentDataFromPresentedForm(
+        aggregate.diagnosticReports[0]?.presentedForm
+      );
       const draft: ReferralDraft = {
         referralId:
           (serviceRequest.requisition as { value?: string } | undefined)?.value ??
@@ -902,7 +920,9 @@ export function AppProvider({ children }: PropsWithChildren) {
           (serviceRequest.note as Array<{ text?: string }> | undefined)?.[1]?.text ?? "",
         chiefComplaint:
           (aggregate.conditions[0]?.code as { text?: string } | undefined)?.text ?? "",
-        clinicalHistory: String(aggregate.conditions[0]?.note ?? ""),
+        clinicalHistory:
+          (aggregate.conditions[0]?.note as Array<{ text?: string }> | undefined)?.[0]?.text ??
+          "",
         workingImpressionText:
           (aggregate.conditions[1]?.code as { text?: string } | undefined)?.text ??
           clinicalReason.display,
@@ -923,7 +943,8 @@ export function AppProvider({ children }: PropsWithChildren) {
           (aggregate.diagnosticReports[0]?.code as { text?: string } | undefined)?.text ??
           "Diagnostic report",
         labConclusion: String(aggregate.diagnosticReports[0]?.conclusion ?? ""),
-        labAttachmentBase64: "",
+        labAttachmentBase64: diagnosticAttachment.data,
+        labAttachmentContentType: diagnosticAttachment.contentType,
         referralCriteriaSatisfied: true,
         consentGiven: false,
         consentStatement: "",

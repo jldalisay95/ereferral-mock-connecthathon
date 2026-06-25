@@ -111,6 +111,7 @@ export interface ReferralDraft {
   labTitle: string;
   labConclusion: string;
   labAttachmentBase64: string;
+  labAttachmentContentType?: string;
   referralCriteriaSatisfied: boolean;
   consentGiven: boolean;
   consentStatement: string;

@@ -129,6 +129,24 @@ export function ReferralPreview() {
         </div>
       </section>
 
+      <section className="card">
+        <p className="eyebrow">Clinical payload</p>
+        <h2>Information to be sent</h2>
+        <dl className="detail-list">
+          <dt>Chief complaint</dt><dd>{draft.chiefComplaint || "Missing"}</dd>
+          <dt>Clinical history</dt><dd>{draft.clinicalHistory || "Not provided"}</dd>
+          <dt>Working impression</dt><dd>{draft.workingImpressionText || "Missing"}</dd>
+          <dt>Lab report title</dt><dd>{draft.labTitle || "Diagnostic report"}</dd>
+          <dt>Lab conclusion</dt><dd>{draft.labConclusion || "Not provided"}</dd>
+          <dt>Diagnostic attachment</dt>
+          <dd>
+            {draft.labAttachmentBase64
+              ? `Included in DiagnosticReport.presentedForm (${draft.labAttachmentContentType || "application/octet-stream"}).`
+              : "No attachment data included."}
+          </dd>
+        </dl>
+      </section>
+
       {requiredMissing.length ? (
         <div className="notice danger">
           Required fields missing: {requiredMissing.join(", ")}.

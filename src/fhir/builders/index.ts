@@ -58,6 +58,8 @@ const narrative = (summary: string) => ({
   status: "generated",
   div: `<div xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><p>${escapeXhtml(summary)}</p></div>`
 });
+const attachmentDataUrl = (contentType: string | undefined, base64: string) =>
+  `data:${contentType || "application/octet-stream"};base64,${base64}`;
 
 function address(input: ReferralDraft["patient"]["address"]) {
   const geographicExtensions = [
@@ -434,7 +436,7 @@ export function buildDiagnosticReport(
   draft: ReferralDraft,
   refs: ReferralReferences
 ): FhirResource {
-  return {
+  const report: FhirResource = {
     resourceType: "DiagnosticReport",
     language: "en",
     text: narrative(`${draft.labTitle}: ${draft.labConclusion}`),
@@ -444,6 +446,18 @@ export function buildDiagnosticReport(
     encounter: reference(refs.encounter),
     conclusion: draft.labConclusion
   };
+  if (draft.labAttachmentBase64) {
+    report.presentedForm = [
+      {
+        url: attachmentDataUrl(
+          draft.labAttachmentContentType,
+          draft.labAttachmentBase64
+        ),
+        title: draft.labTitle
+      }
+    ];
+  }
+  return report;
 }
 
 export function buildServiceRequest(
