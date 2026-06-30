@@ -53,4 +53,33 @@ describe("OperationOutcome parsing", () => {
     expect(summary.issues).toHaveLength(1);
     expect(summary.issues[0].occurrences).toBe(2);
   });
+
+  it("does not block the known MIME type terminology server gap for attachments", () => {
+    const summary = parseOperationOutcome({
+      resourceType: "OperationOutcome",
+      issue: [
+        {
+          severity: "error",
+          code: "code-invalid",
+          expression: [
+            "Parameters.parameter[0].resource.entry[16].resource.presentedForm[0].contentType"
+          ],
+          diagnostics:
+            "A definition for CodeSystem 'urn:ietf:bcp:13' could not be found, so the code cannot be validated"
+        },
+        {
+          severity: "error",
+          code: "code-invalid",
+          expression: [
+            "Parameters.parameter[0].resource.entry[16].resource.presentedForm[0].contentType"
+          ],
+          diagnostics:
+            "The value provided ('image/png') was not found in the value set 'MimeType' (http://hl7.org/fhir/ValueSet/mimetypes|4.0.1)"
+        }
+      ]
+    });
+    expect(summary.counts.error).toBe(0);
+    expect(summary.counts.warning).toBe(2);
+    expect(summary.blocking).toBe(false);
+  });
 });

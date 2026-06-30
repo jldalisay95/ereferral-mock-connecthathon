@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { JsonPanel } from "../components/JsonPanel";
 import { useAppContext } from "../context/useAppContext";
+import {
+  decodeFirstReadableAttachment,
+  downloadDecodedAttachment,
+  openDecodedAttachment
+} from "../services/attachments";
+import { referralFacilityLabels } from "../services/referralDisplay";
 import { hydrateReferral, searchRemoteReferrals } from "../services/referralRetrieval";
 import type { FhirResource, ReferralAggregate } from "../types";
 
@@ -168,10 +174,49 @@ interface ClinicalSummaryProps {
 }
 
 export function ClinicalSummary({ aggregate }: ClinicalSummaryProps) {
+  const { endpoints } = useAppContext();
+  const [attachmentMessage, setAttachmentMessage] = useState("");
   const patientName = ((aggregate.patient?.name as Array<{ text?: string; given?: string[]; family?: string }> | undefined)?.[0]);
   const displayName =
     patientName?.text ??
     (`${patientName?.given?.join(" ") ?? ""} ${patientName?.family ?? ""}`.trim() || "Patient");
+  const facilityLabels = referralFacilityLabels(aggregate);
+  const diagnosticAttachment = decodeFirstReadableAttachment(
+    aggregate.diagnosticReports.flatMap((report) =>
+      Array.isArray(report.presentedForm)
+        ? (report.presentedForm as Array<{
+            data?: string;
+            contentType?: string;
+            title?: string;
+            url?: string;
+          }>)
+        : []
+    ),
+    endpoints.pherefBaseUrl
+  );
+  const hasDiagnosticAttachment = Boolean(
+    diagnosticAttachment.data || diagnosticAttachment.url
+  );
+  async function openAttachment() {
+    setAttachmentMessage("");
+    try {
+      await openDecodedAttachment(diagnosticAttachment);
+    } catch (error) {
+      setAttachmentMessage(
+        error instanceof Error ? error.message : "Attachment could not be opened."
+      );
+    }
+  }
+  async function downloadAttachment() {
+    setAttachmentMessage("");
+    try {
+      await downloadDecodedAttachment(diagnosticAttachment);
+    } catch (error) {
+      setAttachmentMessage(
+        error instanceof Error ? error.message : "Attachment could not be downloaded."
+      );
+    }
+  }
   return (
     <section className="card clinical-summary">
       <p className="eyebrow">Receiving-facility clinical summary</p>
@@ -180,14 +225,53 @@ export function ClinicalSummary({ aggregate }: ClinicalSummaryProps) {
         <div><span>Gender</span><strong>{String(aggregate.patient?.gender ?? "-")}</strong></div>
         <div><span>Birth date</span><strong>{String(aggregate.patient?.birthDate ?? "-")}</strong></div>
         <div><span>Task status</span><strong>{String(aggregate.task?.status ?? "-")}</strong></div>
+        <div><span>Referring facility</span><strong>{facilityLabels.referring}</strong></div>
+        <div><span>Receiving facility</span><strong>{facilityLabels.receiving}</strong></div>
         <div><span>Conditions</span><strong>{aggregate.conditions.length}</strong></div>
         <div><span>Vital observations</span><strong>{aggregate.observations.length}</strong></div>
         <div><span>Attachments</span><strong>{aggregate.diagnosticReports.length}</strong></div>
       </div>
       <div className="clinical-columns">
+        <div>
+          <h3>Diagnostic attachment</h3>
+          {hasDiagnosticAttachment ? (
+            <div className="button-row">
+              <span>
+                {diagnosticAttachment.title || "Attachment"}{" "}
+                {diagnosticAttachment.isExternalUrl
+                  ? "linked"
+                  : `included (${diagnosticAttachment.contentType || "application/octet-stream"})`}
+              </span>
+              <button
+                type="button"
+                className="secondary compact"
+                onClick={openAttachment}
+              >
+                {diagnosticAttachment.isExternalUrl ? "Open link" : "Open attachment"}
+              </button>
+              {!diagnosticAttachment.isExternalUrl ? (
+                <button
+                  type="button"
+                  className="secondary compact"
+                  onClick={downloadAttachment}
+                >
+                  Download attachment
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <p>No attachment data included.</p>
+          )}
+          {attachmentMessage ? <p className="danger-text">{attachmentMessage}</p> : null}
+        </div>
+      </div>
+      <div className="clinical-columns">
         <div><h3>Clinical reason</h3>{aggregate.conditions.map((condition) => <p key={condition.id}>{String((condition.code as { text?: string } | undefined)?.text ?? condition.id)}</p>)}</div>
-        <div><h3>Facilities</h3>{aggregate.organizations.map((organization) => <p key={organization.id}>{String(organization.name)}</p>)}</div>
-        <div><h3>Practitioners</h3>{aggregate.practitioners.map((practitioner) => <p key={practitioner.id}>{JSON.stringify(practitioner.name)}</p>)}</div>
+        <div>
+          <h3>Referral route</h3>
+          <p>{facilityLabels.referring}</p>
+          <p>{facilityLabels.receiving}</p>
+        </div>
       </div>
     </section>
   );

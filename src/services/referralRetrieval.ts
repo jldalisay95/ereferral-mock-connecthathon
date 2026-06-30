@@ -29,6 +29,14 @@ async function readReference(baseUrl: string, value: unknown): Promise<FhirResou
   }
 }
 
+async function searchResourcesSafe(
+  baseUrl: string,
+  resourceType: string,
+  params: URLSearchParams
+): Promise<FhirResource[]> {
+  return searchResources(baseUrl, resourceType, params).catch(() => []);
+}
+
 async function uniqueReferencedResources(
   baseUrl: string,
   values: unknown[]
@@ -303,45 +311,82 @@ export async function hydrateReferral(
   const patientRef = patient?.id ? `Patient/${patient.id}` : "";
   const encounterRef = encounter?.id ? `Encounter/${encounter.id}` : "";
 
+  const referencedActors = await uniqueReferencedResources(baseUrl, [
+    serviceRequest.requester,
+    ...(Array.isArray(serviceRequest.performer) ? serviceRequest.performer : [])
+  ]);
+  const directOrganizations = referencedActors.filter(
+    (resource) => resource.resourceType === "Organization"
+  );
+  const practitionerRoles = referencedActors.filter(
+    (resource) => resource.resourceType === "PractitionerRole"
+  );
+  const directPractitioners = referencedActors.filter(
+    (resource) => resource.resourceType === "Practitioner"
+  );
+
   const [
     tasks,
     conditions,
     observations,
     procedures,
-    diagnosticReports,
-    provenances,
-    practitionerRoles
+    diagnosticReportsByEncounter,
+    diagnosticReportsByServiceRequest,
+    provenances
   ] = await Promise.all([
-    searchResources(baseUrl, "Task", new URLSearchParams({ focus: serviceRequestRef })),
+    searchResourcesSafe(baseUrl, "Task", new URLSearchParams({ focus: serviceRequestRef })),
     encounterRef
-      ? searchResources(baseUrl, "Condition", new URLSearchParams({ encounter: encounterRef }))
+      ? searchResourcesSafe(baseUrl, "Condition", new URLSearchParams({ encounter: encounterRef }))
       : patientRef
-        ? searchResources(baseUrl, "Condition", new URLSearchParams({ subject: patientRef }))
+        ? searchResourcesSafe(baseUrl, "Condition", new URLSearchParams({ subject: patientRef }))
         : [],
     encounterRef
-      ? searchResources(baseUrl, "Observation", new URLSearchParams({ encounter: encounterRef }))
+      ? searchResourcesSafe(baseUrl, "Observation", new URLSearchParams({ encounter: encounterRef }))
       : [],
     encounterRef
-      ? searchResources(baseUrl, "Procedure", new URLSearchParams({ encounter: encounterRef }))
+      ? searchResourcesSafe(baseUrl, "Procedure", new URLSearchParams({ encounter: encounterRef }))
       : [],
     encounterRef
-      ? searchResources(baseUrl, "DiagnosticReport", new URLSearchParams({ encounter: encounterRef }))
+      ? searchResourcesSafe(baseUrl, "DiagnosticReport", new URLSearchParams({ encounter: encounterRef }))
       : [],
-    searchResources(baseUrl, "Provenance", new URLSearchParams({ target: serviceRequestRef })),
-    uniqueReferencedResources(baseUrl, [
-      serviceRequest.requester,
-      ...(Array.isArray(serviceRequest.performer) ? serviceRequest.performer : [])
-    ])
+    searchResourcesSafe(
+      baseUrl,
+      "DiagnosticReport",
+      new URLSearchParams({ "based-on": serviceRequestRef })
+    ),
+    searchResourcesSafe(baseUrl, "Provenance", new URLSearchParams({ target: serviceRequestRef }))
+  ]);
+  const diagnosticReports = uniqueResources([
+    ...diagnosticReportsByServiceRequest,
+    ...diagnosticReportsByEncounter
   ]);
 
-  const organizations = await uniqueReferencedResources(
+  const taskActors = await uniqueReferencedResources(baseUrl, [
+    tasks[0]?.requester,
+    tasks[0]?.owner
+  ]);
+  const allPractitionerRoles = uniqueResources([
+    ...practitionerRoles,
+    ...taskActors.filter((resource) => resource.resourceType === "PractitionerRole")
+  ]);
+  const roleOrganizations = await uniqueReferencedResources(
     baseUrl,
-    practitionerRoles.map((role) => role.organization)
+    allPractitionerRoles.map((role) => role.organization)
   );
-  const practitioners = await uniqueReferencedResources(
+  const rolePractitioners = await uniqueReferencedResources(
     baseUrl,
-    practitionerRoles.map((role) => role.practitioner)
+    allPractitionerRoles.map((role) => role.practitioner)
   );
+  const organizations = uniqueResources([
+    ...directOrganizations,
+    ...taskActors.filter((resource) => resource.resourceType === "Organization"),
+    ...roleOrganizations
+  ]);
+  const practitioners = uniqueResources([
+    ...directPractitioners,
+    ...taskActors.filter((resource) => resource.resourceType === "Practitioner"),
+    ...rolePractitioners
+  ]);
 
   return {
     serviceRequest,
@@ -355,6 +400,6 @@ export async function hydrateReferral(
     provenances,
     organizations,
     practitioners,
-    practitionerRoles
+    practitionerRoles: allPractitionerRoles
   };
 }

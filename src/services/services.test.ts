@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseReference } from "./referralRetrieval";
+import { referralFacilityLabels } from "./referralDisplay";
 import { parseTransactionResponse, validateBundleDetailed } from "./fhirClient";
 import { buildExpandUrl } from "./terminologyClient";
 
@@ -37,6 +38,66 @@ describe("service helpers", () => {
       id: "456"
     });
     expect(parseReference("urn:uuid:abc")).toBeNull();
+  });
+
+  it("resolves referral facility labels through PractitionerRole organization", () => {
+    const labels = referralFacilityLabels({
+      serviceRequest: {
+        resourceType: "ServiceRequest",
+        requester: { reference: "PractitionerRole/requester-role" },
+        performer: [{ reference: "PractitionerRole/owner-role" }]
+      },
+      task: {
+        resourceType: "Task",
+        owner: { reference: "PractitionerRole/owner-role" }
+      },
+      organizations: [
+        {
+          resourceType: "Organization",
+          id: "sender-org",
+          name: "Sender Facility",
+          identifier: [
+            {
+              system: "https://fhir.doh.gov.ph/phcore/Identifier/doh-nhfr-code",
+              value: "1001"
+            }
+          ]
+        },
+        {
+          resourceType: "Organization",
+          id: "receiver-org",
+          name: "Receiver Facility",
+          identifier: [
+            {
+              system: "https://fhir.doh.gov.ph/phcore/Identifier/doh-nhfr-code",
+              value: "2002"
+            }
+          ]
+        }
+      ],
+      practitionerRoles: [
+        {
+          resourceType: "PractitionerRole",
+          id: "requester-role",
+          organization: { reference: "Organization/sender-org" }
+        },
+        {
+          resourceType: "PractitionerRole",
+          id: "owner-role",
+          organization: { reference: "Organization/receiver-org" }
+        }
+      ],
+      conditions: [],
+      observations: [],
+      procedures: [],
+      diagnosticReports: [],
+      provenances: [],
+      practitioners: []
+    });
+
+    expect(labels.referring).toBe("Sender Facility - 1001");
+    expect(labels.receiving).toBe("Receiver Facility - 2002");
+    expect(labels.taskOwner).toBe("Receiver Facility - 2002");
   });
 
   it("wraps validation payloads in Parameters for HAPI $validate", async () => {

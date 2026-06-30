@@ -31,6 +31,23 @@ describe("referral submission requirements", () => {
     expect(() => assertReferralSubmissionReady(draft)).not.toThrow();
   });
 
+  it("blocks future referral and time-called values", () => {
+    const draft = createDemoDraft();
+    draft.referralCriteriaSatisfied = true;
+    draft.consentGiven = true;
+    const future = new Date(Date.now() + 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 16);
+    draft.authoredOn = future;
+    draft.timeCalled = future;
+    expect(getReferralSubmissionMissing(draft)).toEqual(
+      expect.arrayContaining([
+        "Referral date/time must not be in the future",
+        "Time called must not be in the future"
+      ])
+    );
+  });
+
   it("accepts a receiving Organization selected by FHIR reference", () => {
     const draft = createDemoDraft();
     draft.referralCriteriaSatisfied = true;

@@ -11,7 +11,7 @@ import {
 } from "../data/facilities";
 import { createDemoDraft } from "../data/demo";
 import { createEmptyPatient, patientDisplayName } from "../data/patients";
-import { buildOrganization } from "../fhir/builders";
+import { buildOrganization, buildReferralTransactionBundle } from "../fhir/builders";
 import { emptyValidationSummary } from "../fhir/operationOutcome";
 import {
   applyTaskTransition,
@@ -24,6 +24,7 @@ import {
   updateResource
 } from "../services/fhirClient";
 import { findResource, resolveTransactionBundle } from "../services/demoFhir";
+import { decodeFirstReadableAttachment } from "../services/attachments";
 import { createNotification, localRepository } from "../services/localRepository";
 import { organizationDestinationId } from "../services/organizationDirectory";
 import { createPatientRecord } from "../services/patientRegistry";
@@ -32,6 +33,7 @@ import {
   parseReference,
   searchIncomingReferralsForFacility
 } from "../services/referralRetrieval";
+import { referralFacilityLabels } from "../services/referralDisplay";
 import { assertReferralSubmissionReady } from "../services/referralValidation";
 import {
   createDraftRecord,
@@ -84,18 +86,24 @@ function firstCodeable(value: unknown, fallback: typeof SYSTEM_TEXT = SYSTEM_TEX
 }
 
 function attachmentDataFromPresentedForm(
-  presentedForm: unknown
-): { data: string; contentType?: string } {
-  const attachment = Array.isArray(presentedForm)
-    ? (presentedForm[0] as { data?: string; contentType?: string; url?: string })
+  presentedForm: unknown,
+  baseUrl: string
+): { data: string; contentType?: string; title?: string; url?: string } {
+  const attachments = Array.isArray(presentedForm)
+    ? (presentedForm as Array<{
+        data?: string;
+        contentType?: string;
+        title?: string;
+        url?: string;
+      }>)
     : undefined;
-  if (!attachment) return { data: "" };
-  if (attachment.data) {
-    return { data: attachment.data, contentType: attachment.contentType };
-  }
-  const match = attachment.url?.match(/^data:([^;,]+)?;base64,(.+)$/);
-  if (!match) return { data: "" };
-  return { data: match[2] ?? "", contentType: match[1] };
+  const decoded = decodeFirstReadableAttachment(attachments, baseUrl);
+  return {
+    data: decoded.data,
+    contentType: decoded.contentType,
+    title: decoded.title,
+    url: decoded.isExternalUrl ? decoded.url : undefined
+  };
 }
 
 function firstIdentifier(
@@ -105,6 +113,12 @@ function firstIdentifier(
   return (
     resource?.identifier as Array<{ system?: string; value?: string }> | undefined
   )?.find((identifier) => identifier.system === system)?.value ?? "";
+}
+
+function referenceDisplay(value: unknown) {
+  return value && typeof value === "object" && "display" in value
+    ? String((value as { display?: unknown }).display ?? "")
+    : "";
 }
 
 function patientFromResource(resource: FhirResource | undefined): PatientInput {
@@ -528,6 +542,7 @@ export function AppProvider({ children }: PropsWithChildren) {
               ...record,
               status,
               updatedAt: new Date().toISOString(),
+              fhirBundle: buildReferralTransactionBundle(record.draft),
               validationSummary: summary,
               validationOutcome: outcome,
               timeline: [
@@ -557,7 +572,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     if (activeDraftRecord.validationSummary.blocking && !allowBlocking) {
       throw new Error("Validation contains blocking issues.");
     }
-    const bundle = activeDraftRecord.fhirBundle;
+    const bundle = buildReferralTransactionBundle(activeDraftRecord.draft);
     const remoteResponse = state.settings.demoMode
       ? undefined
       : await submitTransactionBundle(state.settings.pherefBaseUrl, bundle);
@@ -574,6 +589,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       taskStatus: "requested",
       updatedAt: now,
       submittedAt: now,
+      fhirBundle: bundle,
       transactionResponse: resolved.response,
       transactionResponseSummary: receipt,
       fhirResources: resolved.resources,
@@ -818,6 +834,12 @@ export function AppProvider({ children }: PropsWithChildren) {
       const serviceRequest = aggregate.serviceRequest;
       if (!serviceRequest.id) return [];
       const patient = patientFromResource(aggregate.patient);
+      const subjectDisplay = referenceDisplay(serviceRequest.subject);
+      if (!patientDisplayName(patient) && subjectDisplay) {
+        const parts = subjectDisplay.split(/\s+/).filter(Boolean);
+        patient.given = parts.slice(0, -1).join(" ") || subjectDisplay;
+        patient.family = parts.length > 1 ? parts[parts.length - 1] : "";
+      }
       const receivingRoleRef = parseReference(
         Array.isArray(serviceRequest.performer)
           ? serviceRequest.performer[0]
@@ -832,10 +854,14 @@ export function AppProvider({ children }: PropsWithChildren) {
       );
       const receivingOrganization = aggregate.organizations.find(
         (organization) =>
+          (receivingRoleRef?.resourceType === "Organization" &&
+            receivingRoleRef.id === organization.id) ||
           parseReference(receivingRole?.organization)?.id === organization.id
       );
       const referringOrganization = aggregate.organizations.find(
         (organization) =>
+          (requesterRoleRef?.resourceType === "Organization" &&
+            requesterRoleRef.id === organization.id) ||
           parseReference(requesterRole?.organization)?.id === organization.id
       );
       const task = aggregate.task;
@@ -861,7 +887,15 @@ export function AppProvider({ children }: PropsWithChildren) {
           ? serviceRequest.priority
           : "routine";
       const diagnosticAttachment = attachmentDataFromPresentedForm(
-        aggregate.diagnosticReports[0]?.presentedForm
+        aggregate.diagnosticReports[0]?.presentedForm,
+        state.settings.pherefBaseUrl
+      );
+      const facilityLabels = referralFacilityLabels(aggregate);
+      const requesterDisplay = referenceDisplay(serviceRequest.requester);
+      const performerDisplay = referenceDisplay(
+        Array.isArray(serviceRequest.performer)
+          ? serviceRequest.performer[0]
+          : serviceRequest.performer
       );
       const draft: ReferralDraft = {
         referralId:
@@ -882,7 +916,10 @@ export function AppProvider({ children }: PropsWithChildren) {
           role: { ...SYSTEM_TEXT, display: "Remote requester" }
         },
         initiatingFacility: {
-          name: organizationName(referringOrganization, "Remote referring facility"),
+          name: organizationName(
+            referringOrganization,
+            facilityLabels.referring || requesterDisplay || "Remote referring facility"
+          ),
           nhfrCode: firstIdentifier(
             referringOrganization,
             "https://fhir.doh.gov.ph/phcore/Identifier/doh-nhfr-code"
@@ -897,7 +934,10 @@ export function AppProvider({ children }: PropsWithChildren) {
           fhirServerLabel: "PHeReF CDR"
         },
         receivingFacility: {
-          name: organizationName(receivingOrganization, currentAccount.organizationName),
+          name: organizationName(
+            receivingOrganization,
+            facilityLabels.receiving || performerDisplay || currentAccount.organizationName
+          ),
           nhfrCode: facility.organization.nhfrCode,
           hcpnName: facility.organization.hcpnName,
           phone: facility.organization.phone,
@@ -944,7 +984,9 @@ export function AppProvider({ children }: PropsWithChildren) {
           "Diagnostic report",
         labConclusion: String(aggregate.diagnosticReports[0]?.conclusion ?? ""),
         labAttachmentBase64: diagnosticAttachment.data,
+        labAttachmentUrl: diagnosticAttachment.url,
         labAttachmentContentType: diagnosticAttachment.contentType,
+        labAttachmentName: diagnosticAttachment.title,
         referralCriteriaSatisfied: true,
         consentGiven: false,
         consentStatement: "",
@@ -969,13 +1011,13 @@ export function AppProvider({ children }: PropsWithChildren) {
           id: `remote-ServiceRequest-${serviceRequest.id}`,
           localReferralId: draft.referralId,
           patientId: draft.patientRecordId,
-          patientName: patientDisplayName(patient) || "Remote patient",
+          patientName: patientDisplayName(patient) || subjectDisplay || "Remote patient",
           referringOrganizationId: referringOrganization?.id
             ? `remote-Organization-${referringOrganization.id}`
             : "remote-referring-organization",
           referringOrganizationName: draft.initiatingFacility.name,
           receivingOrganizationId: currentAccount.organizationId,
-          receivingOrganizationName: currentAccount.organizationName,
+          receivingOrganizationName: draft.receivingFacility.name,
           reason: requestedService.display,
           priority,
           category: referralCategory.display,

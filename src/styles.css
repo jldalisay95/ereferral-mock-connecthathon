@@ -102,6 +102,7 @@ input:focus, select:focus, textarea:focus { outline: 3px solid rgba(8, 127, 104,
 .compact-empty { margin: 0; }
 .notice.warning { border-color: var(--warning); background: #fff5e6; }
 .notice.danger, .validation.danger { border-color: var(--danger); background: #fff7f7; }
+.notice.success { border-color: var(--success); background: #eefaf1; }
 .validation.success { border-color: #a8d2b8; }
 .severity-counts { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .severity { padding: 0.3rem 0.5rem; border-radius: 0.35rem; background: #edf1ef; font-size: 0.78rem; }

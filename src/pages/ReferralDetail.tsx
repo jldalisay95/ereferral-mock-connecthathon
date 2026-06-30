@@ -5,22 +5,19 @@ import { ReferralTimeline } from "../components/ReferralTimeline";
 import { StatusBadge } from "../components/StatusBadge";
 import { ValidationPanel } from "../components/ValidationPanel";
 import { useAppContext } from "../context/useAppContext";
+import {
+  decodeFhirAttachment,
+  downloadDecodedAttachment,
+  openDecodedAttachment
+} from "../services/attachments";
 import { findResource } from "../services/demoFhir";
+import { referralFacilityLabels } from "../services/referralDisplay";
 import type { ReferralRecord, TaskTransition } from "../types";
 
 function formatDateTime(value: unknown) {
   if (typeof value !== "string") return "-";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-}
-
-function formatReference(value: unknown) {
-  if (typeof value === "string") return value;
-  if (value && typeof value === "object" && "reference" in value) {
-    const reference = (value as { reference?: unknown }).reference;
-    return typeof reference === "string" ? reference : "-";
-  }
-  return "-";
 }
 
 function ageFromBirthDate(value: string) {
@@ -73,6 +70,36 @@ export function ReferralDetail() {
   const task = findResource(referral.fhirResources, "Task");
   const serviceRequest = findResource(referral.fhirResources, "ServiceRequest");
   const patientResource = findResource(referral.fhirResources, "Patient");
+  const facilityLabels = serviceRequest
+    ? referralFacilityLabels({
+        serviceRequest,
+        patient: patientResource,
+        task,
+        encounter: findResource(referral.fhirResources, "Encounter"),
+        conditions: referral.fhirResources.filter((resource) => resource.resourceType === "Condition"),
+        observations: referral.fhirResources.filter((resource) => resource.resourceType === "Observation"),
+        procedures: referral.fhirResources.filter((resource) => resource.resourceType === "Procedure"),
+        diagnosticReports: referral.fhirResources.filter((resource) => resource.resourceType === "DiagnosticReport"),
+        provenances: referral.fhirResources.filter((resource) => resource.resourceType === "Provenance"),
+        organizations: referral.fhirResources.filter((resource) => resource.resourceType === "Organization"),
+        practitioners: referral.fhirResources.filter((resource) => resource.resourceType === "Practitioner"),
+        practitionerRoles: referral.fhirResources.filter((resource) => resource.resourceType === "PractitionerRole")
+      })
+    : {
+        referring: referral.referringOrganizationName,
+        receiving: referral.receivingOrganizationName,
+        taskRequester: referral.referringOrganizationName,
+        taskOwner: referral.receivingOrganizationName
+      };
+  const diagnosticAttachment = decodeFhirAttachment({
+    data: draft.labAttachmentBase64,
+    url: draft.labAttachmentUrl,
+    contentType: draft.labAttachmentContentType,
+    title: draft.labAttachmentName || draft.labTitle
+  });
+  const hasDiagnosticAttachment = Boolean(
+    diagnosticAttachment.data || diagnosticAttachment.url
+  );
   const assignedToCurrentFacility =
     referral.receivingOrganizationId === currentAccount?.organizationId ||
     referral.forwardedToOrganizationId === currentAccount?.organizationId;
@@ -116,6 +143,26 @@ export function ReferralDetail() {
     }
   }
 
+  async function openAttachment() {
+    setMessage("");
+    try {
+      await openDecodedAttachment(diagnosticAttachment);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Attachment could not be opened.");
+    }
+  }
+
+  async function downloadAttachment() {
+    setMessage("");
+    try {
+      await downloadDecodedAttachment(diagnosticAttachment);
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Attachment could not be downloaded."
+      );
+    }
+  }
+
   return (
     <div className="page-stack">
       <section className="card referral-header">
@@ -134,9 +181,9 @@ export function ReferralDetail() {
           </Link>
         </div>
         <div className="facility-route">
-          <span>{referral.referringOrganizationName}</span>
+          <span>{facilityLabels.referring || referral.referringOrganizationName}</span>
           <strong>to</strong>
-          <span>{referral.receivingOrganizationName}</span>
+          <span>{facilityLabels.receiving || referral.receivingOrganizationName}</span>
         </div>
       </section>
 
@@ -203,9 +250,34 @@ export function ReferralDetail() {
           <dt>Laboratory</dt><dd>{draft.labTitle}: {draft.labConclusion}</dd>
           <dt>Diagnostic attachment</dt>
           <dd>
-            {draft.labAttachmentBase64
-              ? `Included (${draft.labAttachmentContentType || "application/octet-stream"})`
-              : "No attachment data included"}
+            {hasDiagnosticAttachment ? (
+              <div className="button-row">
+                <span>
+                  {diagnosticAttachment.title || "Attachment"}{" "}
+                  {diagnosticAttachment.isExternalUrl
+                    ? "linked"
+                    : `included (${diagnosticAttachment.contentType || "application/octet-stream"})`}
+                </span>
+                <button
+                  type="button"
+                  className="secondary compact"
+                  onClick={openAttachment}
+                >
+                  {diagnosticAttachment.isExternalUrl ? "Open link" : "Open attachment"}
+                </button>
+                {!diagnosticAttachment.isExternalUrl ? (
+                  <button
+                    type="button"
+                    className="secondary compact"
+                    onClick={downloadAttachment}
+                  >
+                    Download attachment
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+              "No attachment data included"
+            )}
           </dd>
         </dl>
       </section>
@@ -233,8 +305,8 @@ export function ReferralDetail() {
           <div><span>Care status</span><strong>{referral.careStatus ?? "Not recorded"}</strong></div>
           <div><span>Authored</span><strong>{formatDateTime(task?.authoredOn ?? draft.authoredOn)}</strong></div>
           <div><span>Last modified</span><strong>{formatDateTime(task?.lastModified ?? referral.updatedAt)}</strong></div>
-          <div><span>Requester</span><strong>{formatReference(task?.requester)}</strong></div>
-          <div><span>Owner</span><strong>{formatReference(task?.owner)}</strong></div>
+          <div><span>Requester facility</span><strong>{facilityLabels.taskRequester}</strong></div>
+          <div><span>Owner facility</span><strong>{facilityLabels.taskOwner}</strong></div>
         </div>
         {canUpdate ? (
           <div className="workflow-actions">

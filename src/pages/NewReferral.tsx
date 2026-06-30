@@ -15,6 +15,58 @@ import { searchPatients } from "../services/patientRegistry";
 import type { OrganizationInput, ReferralDraft } from "../types";
 
 type Section = keyof ReferralDraft;
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+const ACCEPTED_ATTACHMENT_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/tiff",
+  "image/bmp",
+  "text/plain",
+  "application/rtf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+];
+const ACCEPTED_ATTACHMENT_EXTENSIONS: Record<string, string> = {
+  pdf: "application/pdf",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  tif: "image/tiff",
+  tiff: "image/tiff",
+  bmp: "image/bmp",
+  txt: "text/plain",
+  rtf: "application/rtf",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+};
+const ATTACHMENT_ACCEPT = [
+  ...ACCEPTED_ATTACHMENT_TYPES,
+  ...Object.keys(ACCEPTED_ATTACHMENT_EXTENSIONS).map((extension) => `.${extension}`)
+].join(",");
+const ATTACHMENT_TYPE_HELP =
+  "Accepted file types: PDF, JPG/JPEG, PNG, GIF, TIFF, BMP, TXT, RTF, DOC, and DOCX.";
+
+function supportedAttachmentType(file: File) {
+  if (ACCEPTED_ATTACHMENT_TYPES.includes(file.type)) return file.type;
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  return ACCEPTED_ATTACHMENT_EXTENSIONS[extension] ?? "";
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} bytes`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  return `${(kb / 1024).toFixed(2)} MB`;
+}
+
+function currentLocalDateTime() {
+  const now = new Date();
+  const offsetMs = now.getTimezoneOffset() * 60_000;
+  return new Date(now.getTime() - offsetMs).toISOString().slice(0, 16);
+}
 
 export function NewReferral() {
   const {
@@ -37,6 +89,11 @@ export function NewReferral() {
   const [organizationSearchStatus, setOrganizationSearchStatus] = useState<
     "idle" | "loading" | "error"
   >("idle");
+  const [attachmentFeedback, setAttachmentFeedback] = useState<{
+    status: "idle" | "reading" | "ready" | "error";
+    message: string;
+  }>({ status: "idle", message: "" });
+  const maxDateTime = currentLocalDateTime();
 
   const patientResults = useMemo(
     () =>
@@ -111,27 +168,90 @@ export function NewReferral() {
     value: string | number
   ) => updateSection("vitals", { ...currentDraft.vitals, [key]: value });
 
-  async function updateLabAttachment(file?: File) {
+  function refreshCurrentTimes() {
+    const now = currentLocalDateTime();
+    setDraft({ ...currentDraft, authoredOn: now, timeCalled: now });
+  }
+
+  async function updateLabAttachment(file?: File, input?: HTMLInputElement) {
     if (!file) {
       setDraft({
         ...currentDraft,
         labAttachmentBase64: "",
-        labAttachmentContentType: undefined
+        labAttachmentContentType: undefined,
+        labAttachmentName: undefined
+      });
+      setAttachmentFeedback({ status: "idle", message: "" });
+      return;
+    }
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      if (input) input.value = "";
+      setAttachmentFeedback({
+        status: "error",
+        message: `${file.name} is ${formatFileSize(file.size)}. Maximum file size is 5 MB.`
+      });
+      setDraft({
+        ...currentDraft,
+        labAttachmentBase64: "",
+        labAttachmentContentType: undefined,
+        labAttachmentName: undefined
       });
       return;
     }
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
+    const contentType = supportedAttachmentType(file);
+    if (!contentType) {
+      if (input) input.value = "";
+      setAttachmentFeedback({
+        status: "error",
+        message: `Unsupported attachment type for ${file.name}. ${ATTACHMENT_TYPE_HELP}`
+      });
+      setDraft({
+        ...currentDraft,
+        labAttachmentBase64: "",
+        labAttachmentContentType: undefined,
+        labAttachmentName: undefined
+      });
+      return;
+    }
+    setAttachmentFeedback({
+      status: "reading",
+      message: `Reading ${file.name} (${formatFileSize(file.size)})...`
     });
-    const [, base64 = ""] = dataUrl.split(",");
-    setDraft({
-      ...currentDraft,
-      labAttachmentBase64: base64,
-      labAttachmentContentType: file.type || "application/octet-stream"
-    });
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      const [, base64 = ""] = dataUrl.split(",");
+      if (!base64) throw new Error("The file could not be converted to base64.");
+      setDraft({
+        ...currentDraft,
+        labAttachmentBase64: base64,
+        labAttachmentContentType: contentType,
+        labAttachmentName: file.name
+      });
+      setAttachmentFeedback({
+        status: "ready",
+        message: `${file.name} (${formatFileSize(file.size)}, ${contentType}) is ready and will be included in the referral Bundle.`
+      });
+    } catch (error) {
+      if (input) input.value = "";
+      setDraft({
+        ...currentDraft,
+        labAttachmentBase64: "",
+        labAttachmentContentType: undefined,
+        labAttachmentName: undefined
+      });
+      setAttachmentFeedback({
+        status: "error",
+        message:
+          error instanceof Error
+            ? `Attachment could not be read: ${error.message}`
+            : "Attachment could not be read."
+      });
+    }
   }
 
   return (
@@ -235,13 +355,32 @@ export function NewReferral() {
           <FormField label="Diagnostic report attachment">
             <input
               type="file"
-              onChange={(event) => void updateLabAttachment(event.target.files?.[0])}
+              accept={ATTACHMENT_ACCEPT}
+              onChange={(event) =>
+                void updateLabAttachment(event.target.files?.[0], event.currentTarget)
+              }
             />
             <small>
-              {draft.labAttachmentBase64
-                ? `Attachment included in DiagnosticReport.presentedForm as ${draft.labAttachmentContentType || "application/octet-stream"}.`
-                : "No attachment selected. The DiagnosticReport title and conclusion will still be sent."}
+              Maximum file size is 5 MB. {ATTACHMENT_TYPE_HELP}
             </small>
+            {attachmentFeedback.message ? (
+              <div
+                className={`notice ${
+                  attachmentFeedback.status === "error"
+                    ? "danger"
+                    : attachmentFeedback.status === "ready"
+                      ? "success"
+                      : ""
+                }`}
+              >
+                {attachmentFeedback.message}
+              </div>
+            ) : draft.labAttachmentBase64 ? (
+              <div className="notice success">
+                {draft.labAttachmentName || "Attachment"} is ready and will be
+                included in the referral Bundle.
+              </div>
+            ) : null}
           </FormField>
           <label className="decision-row">
             <input
@@ -481,22 +620,20 @@ export function NewReferral() {
               <FormField label="Date and time of referral">
                 <TextInput
                   type="datetime-local"
-                  value={draft.authoredOn}
-                  onChange={(event) =>
-                    updateSection("authoredOn", event.target.value)
-                  }
+                  max={maxDateTime}
+                  value={maxDateTime}
+                  readOnly
                 />
               </FormField>
               <FormField
                 label="Time called"
-                hint="Draft mapping uses ServiceRequest.occurrenceDateTime."
+                hint="Automatically set to the current date and time."
               >
                 <TextInput
                   type="datetime-local"
-                  value={draft.timeCalled}
-                  onChange={(event) =>
-                    updateSection("timeCalled", event.target.value)
-                  }
+                  max={maxDateTime}
+                  value={maxDateTime}
+                  readOnly
                 />
               </FormField>
               <FormField label="Priority">
@@ -593,7 +730,11 @@ export function NewReferral() {
               Back
             </button>
             <span>Draft saved locally - synthetic data only</span>
-            <Link className="button" to="/referrals/preview">
+            <Link
+              className="button"
+              to="/referrals/preview"
+              onClick={refreshCurrentTimes}
+            >
               Preview and validate
             </Link>
           </div>

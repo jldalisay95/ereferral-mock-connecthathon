@@ -25,6 +25,22 @@ function categorize(message: string, code?: string): ValidationIssue["category"]
   return "structural";
 }
 
+function isMimeTypeValidatorInfrastructureIssue(
+  message: string,
+  expression?: string[],
+  location?: string[]
+) {
+  const text = message.toLowerCase();
+  const path = [...(expression ?? []), ...(location ?? [])]
+    .join(" ")
+    .toLowerCase();
+  return (
+    path.includes("presentedform") &&
+    path.includes("contenttype") &&
+    (text.includes("urn:ietf:bcp:13") || text.includes("valueset/mimetypes"))
+  );
+}
+
 export function parseOperationOutcome(
   resource: FhirResource | null | undefined,
   httpStatus?: number
@@ -49,18 +65,25 @@ export function parseOperationOutcome(
         (typeof item.diagnostics === "string" && item.diagnostics) ||
         details?.text ||
         "FHIR validation issue";
-      counts[severity] += 1;
+      const expression = Array.isArray(item.expression)
+        ? item.expression.filter((value): value is string => typeof value === "string")
+        : undefined;
+      const location = Array.isArray(item.location)
+        ? item.location.filter((value): value is string => typeof value === "string")
+        : undefined;
+      const adjustedSeverity =
+        severity === "error" &&
+        isMimeTypeValidatorInfrastructureIssue(message, expression, location)
+          ? "warning"
+          : severity;
+      counts[adjustedSeverity] += 1;
       return {
-        severity,
+        severity: adjustedSeverity,
         code: typeof item.code === "string" ? item.code : undefined,
         message,
         diagnostics: message,
-        expression: Array.isArray(item.expression)
-          ? item.expression.filter((value): value is string => typeof value === "string")
-          : undefined,
-        location: Array.isArray(item.location)
-          ? item.location.filter((value): value is string => typeof value === "string")
-          : undefined,
+        expression,
+        location,
         category: categorize(message, typeof item.code === "string" ? item.code : undefined)
       } satisfies ValidationIssue;
     });

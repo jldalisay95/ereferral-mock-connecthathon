@@ -19,6 +19,7 @@ import type {
   EndpointConfig,
   FacilityAccount,
   FacilityDefinition,
+  FhirResource,
   Notification,
   PatientRecord,
   PersistedAppState,
@@ -37,6 +38,7 @@ const LEGACY_KEYS = {
 } as const;
 
 const emptyBundle = { resourceType: "Bundle", type: "transaction", entry: [] };
+const ATTACHMENT_DATA_URL_PATTERN = /^data:[^;,]*;base64,/;
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -45,6 +47,57 @@ function readJson<T>(key: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function stripAttachmentPayload(resource: FhirResource): FhirResource {
+  if (resource.resourceType !== "DiagnosticReport" || !Array.isArray(resource.presentedForm)) {
+    return resource;
+  }
+  return {
+    ...resource,
+    presentedForm: resource.presentedForm.map((item) => {
+      if (!item || typeof item !== "object") return item;
+      const attachment = item as Record<string, unknown>;
+      const url = typeof attachment.url === "string" ? attachment.url : "";
+      if (!attachment.data && !ATTACHMENT_DATA_URL_PATTERN.test(url)) return item;
+      const rest = { ...attachment };
+      delete rest.data;
+      delete rest.url;
+      return {
+        ...rest,
+        title: typeof rest.title === "string" ? rest.title : "Attachment retained on server submission only"
+      };
+    })
+  };
+}
+
+function stripAttachmentPayloadsFromBundle(bundle: FhirResource): FhirResource {
+  if (!Array.isArray(bundle.entry)) return bundle;
+  return {
+    ...bundle,
+    entry: bundle.entry.map((entry) => {
+      if (!entry || typeof entry !== "object") return entry;
+      const item = entry as { resource?: FhirResource };
+      return item.resource
+        ? { ...item, resource: stripAttachmentPayload(item.resource) }
+        : item;
+    })
+  };
+}
+
+function stripLargeAttachmentPayloads(state: PersistedAppState): PersistedAppState {
+  return {
+    ...state,
+    referrals: state.referrals.map((referral) => ({
+      ...referral,
+      draft: {
+        ...referral.draft,
+        labAttachmentBase64: ""
+      },
+      fhirBundle: stripAttachmentPayloadsFromBundle(referral.fhirBundle),
+      fhirResources: referral.fhirResources.map(stripAttachmentPayload)
+    }))
+  };
 }
 
 function buildSession(value: Partial<AppSession> | null | undefined): AppSession | null {
@@ -447,7 +500,21 @@ export const localRepository = {
     return state;
   },
   save(state: PersistedAppState) {
-    localStorage.setItem(STATE_KEY, JSON.stringify(state));
+    try {
+      localStorage.setItem(STATE_KEY, JSON.stringify(state));
+    } catch (error) {
+      console.warn(
+        "Local persistence exceeded browser storage. Retrying without base64 attachment payloads.",
+        error
+      );
+      const fallbackState = stripLargeAttachmentPayloads(state);
+      try {
+        localStorage.setItem(STATE_KEY, JSON.stringify(fallbackState));
+      } catch {
+        localStorage.removeItem(STATE_KEY);
+        localStorage.setItem(STATE_KEY, JSON.stringify(fallbackState));
+      }
+    }
   },
   clearSession(state: PersistedAppState): PersistedAppState {
     const next = { ...state, session: null };

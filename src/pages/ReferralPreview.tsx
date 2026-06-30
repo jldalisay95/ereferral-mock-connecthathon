@@ -99,10 +99,21 @@ export function ReferralPreview() {
       return;
     }
     setSubmitting(true);
-    setMessage("");
+    setMessage(
+      liveMode
+        ? `Posting referral transaction Bundle to ${endpoints.pherefBaseUrl}...`
+        : "Saving referral to local demo..."
+    );
     try {
       const record = await submitCurrentReferral(submitAnyway);
-      navigate(`/referrals/${record.id}`, { replace: true, state: { referral: record } });
+      setMessage(
+        liveMode
+          ? "Referral submitted successfully to the FHIR server."
+          : "Referral saved successfully to the local demo."
+      );
+      window.setTimeout(() => {
+        navigate(`/referrals/${record.id}`, { replace: true, state: { referral: record } });
+      }, 800);
     } catch (error) {
       setMessage(
         `Submission failed: ${error instanceof Error ? error.message : "Unknown error"}`
@@ -141,7 +152,9 @@ export function ReferralPreview() {
           <dt>Diagnostic attachment</dt>
           <dd>
             {draft.labAttachmentBase64
-              ? `Included in DiagnosticReport.presentedForm (${draft.labAttachmentContentType || "application/octet-stream"}).`
+              ? `${draft.labAttachmentName || "Attachment"} included as base64 in DiagnosticReport.presentedForm (${draft.labAttachmentContentType || "application/octet-stream"}).`
+              : draft.labAttachmentUrl
+                ? `${draft.labAttachmentName || "Attachment"} linked from DiagnosticReport.presentedForm.`
               : "No attachment data included."}
           </dd>
         </dl>
@@ -153,6 +166,13 @@ export function ReferralPreview() {
         </div>
       ) : null}
       {message ? <div className="notice">{message}</div> : null}
+      {submitting ? (
+        <div className="notice">
+          {liveMode
+            ? "Submitting referral. Keep this page open until the server responds."
+            : "Saving referral. Keep this page open until the action completes."}
+        </div>
+      ) : null}
       <ValidationPanel summary={validation} />
       <section className="card">
         <div className={liveMode ? "notice warning" : "notice"}>

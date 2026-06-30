@@ -111,7 +111,10 @@ export function updateDraftRecord(
     consentGiven: draft.consentGiven,
     updatedAt: new Date().toISOString(),
     draft,
-    fhirBundle: buildReferralTransactionBundle(draft)
+    fhirBundle:
+      record.status === "draft"
+        ? record.fhirBundle
+        : buildReferralTransactionBundle(draft)
   };
 }
 

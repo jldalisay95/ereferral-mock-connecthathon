@@ -84,7 +84,7 @@ describe("PHeRef builders", () => {
     ]);
   });
 
-  it("builds blood pressure as scalar Observations with published LOINC and UCUM codes", () => {
+  it("builds blood pressure as the published panel Observation with components", () => {
     const draft = createDemoDraft();
     const bundle = buildReferralTransactionBundle(draft);
     const observations = (bundle.entry as Array<{ resource: Record<string, unknown> }>)
@@ -92,12 +92,23 @@ describe("PHeRef builders", () => {
       .filter((resource) => resource.resourceType === "Observation");
     const serialized = JSON.stringify(observations);
     expect(observations).toHaveLength(7);
-    expect(serialized).toContain("8480-6");
-    expect(serialized).toContain("8462-4");
-    expect(serialized).toContain("mm[Hg]");
-    expect(serialized).not.toContain("85354-9");
-    expect(serialized).not.toContain("\"component\"");
-    expect(serialized).not.toContain("ph-core-observation");
+    expect(
+      observations.filter((resource) =>
+        JSON.stringify(resource.code).includes("http://loinc.org")
+      )
+    ).toHaveLength(6);
+    const bloodPressure = observations.find((resource) =>
+      JSON.stringify(resource.code).includes("85354-9")
+    );
+    expect(bloodPressure).toBeDefined();
+    expect(JSON.stringify(bloodPressure?.code)).toContain("75367002");
+    expect(JSON.stringify(bloodPressure?.component)).toContain("8480-6");
+    expect(JSON.stringify(bloodPressure?.component)).toContain("271649006");
+    expect(JSON.stringify(bloodPressure?.component)).toContain("8462-4");
+    expect(JSON.stringify(bloodPressure?.component)).toContain("271650006");
+    expect(JSON.stringify(bloodPressure?.component)).toContain("mm[Hg]");
+    expect(JSON.stringify(bloodPressure?.meta)).toContain("ereferral-observation");
+    expect(serialized).toContain("Clinical history");
   });
 
   it("uses the current Connectathon PSGC canonical", () => {
@@ -146,6 +157,7 @@ describe("PHeRef builders", () => {
       receivingRole: "",
       serviceRequest: "",
       chiefComplaint: "",
+      clinicalHistory: "",
       workingImpression: "",
       observations: [],
       procedure: "",
@@ -153,17 +165,18 @@ describe("PHeRef builders", () => {
       task: "",
       provenance: ""
     });
-    expect(report.code).toEqual({ text: "Synthetic urinalysis summary" });
+    expect(report.code).toEqual({ text: "synthetic-urinalysis.txt" });
+    expect(report.subject).toEqual({ reference: "urn:uuid:patient" });
+    expect(report).not.toHaveProperty("encounter");
+    expect(report).not.toHaveProperty("basedOn");
+    expect(report.issued).toBeDefined();
     expect(report.presentedForm).toEqual([
-      expect.objectContaining({
-        url: expect.stringMatching(/^data:text\/plain;base64,/),
-        title: "Synthetic urinalysis summary"
-      })
+      { url: expect.stringMatching(/^data:text\/plain;base64,/) }
     ]);
     expect(JSON.stringify(report.presentedForm)).not.toContain("contentType");
   });
 
-  it("avoids empty DiagnosticReport attachment metadata when no attachment exists", () => {
+  it("keeps DiagnosticReport presentedForm title metadata when no attachment bytes exist", () => {
     const draft = createDemoDraft();
     draft.labAttachmentBase64 = "";
     draft.labAttachmentContentType = undefined;
@@ -178,6 +191,7 @@ describe("PHeRef builders", () => {
       receivingRole: "",
       serviceRequest: "",
       chiefComplaint: "",
+      clinicalHistory: "",
       workingImpression: "",
       observations: [],
       procedure: "",
@@ -185,8 +199,42 @@ describe("PHeRef builders", () => {
       task: "",
       provenance: ""
     });
-    expect(report.code).toEqual({ text: "Synthetic urinalysis summary" });
-    expect(report).not.toHaveProperty("presentedForm");
+    expect(report.code).toEqual({ text: "synthetic-urinalysis.txt" });
+    expect(report.presentedForm).toEqual([{ title: "synthetic-urinalysis.txt" }]);
+  });
+
+  it("keeps DiagnosticReport external attachment URLs without contentType", () => {
+    const draft = createDemoDraft();
+    draft.labAttachmentBase64 = "";
+    draft.labAttachmentUrl = "https://example.test/reports/urinalysis.pdf";
+    draft.labAttachmentName = "urinalysis.pdf";
+    const report = buildDiagnosticReport(draft, {
+      patient: "urn:uuid:patient",
+      encounter: "urn:uuid:encounter",
+      referringPractitioner: "",
+      receivingPractitioner: "",
+      initiatingOrganization: "",
+      receivingOrganization: "",
+      referringRole: "",
+      receivingRole: "",
+      serviceRequest: "",
+      chiefComplaint: "",
+      clinicalHistory: "",
+      workingImpression: "",
+      observations: [],
+      procedure: "",
+      diagnosticReport: "",
+      task: "",
+      provenance: ""
+    });
+
+    expect(report.presentedForm).toEqual([
+      {
+        url: "https://example.test/reports/urinalysis.pdf",
+        title: "urinalysis.pdf"
+      }
+    ]);
+    expect(JSON.stringify(report.presentedForm)).not.toContain("contentType");
   });
 
   it("uses validator-compatible Encounter and Provenance signature fields", () => {
@@ -202,6 +250,7 @@ describe("PHeRef builders", () => {
       receivingRole: "",
       serviceRequest: "urn:uuid:service-request",
       chiefComplaint: "",
+      clinicalHistory: "",
       workingImpression: "",
       observations: [],
       procedure: "",
@@ -283,6 +332,31 @@ describe("PHeRef builders", () => {
         }>
       )[0].coding[0].code
     ).toBe("11429006");
+    expect(JSON.stringify(serviceRequest.reasonReference)).toContain("urn:uuid:");
+    expect(JSON.stringify(serviceRequest.supportingInfo)).toContain("urn:uuid:");
+    expect(JSON.stringify(serviceRequest.supportingInfo)).toContain(
+      (entries.find(
+        (entry) =>
+          (entry.resource as { resourceType?: string; valueString?: string })
+            .valueString === "Synthetic history: symptoms persisted despite initial supportive care."
+      )?.fullUrl as string)
+    );
+    expect(JSON.stringify(serviceRequest.supportingInfo)).not.toContain(
+      entries.find(
+        (entry) => (entry.resource as { resourceType: string }).resourceType === "DiagnosticReport"
+      )?.fullUrl as string
+    );
+    expect(JSON.stringify(serviceRequest.requester)).toContain("Kalibo Health Center");
+    expect(JSON.stringify(serviceRequest.requester)).toContain("3056");
+    expect(JSON.stringify(serviceRequest.requester)).not.toContain("Maria");
+    expect(JSON.stringify(serviceRequest.performer)).toContain(
+      "Dr. Rafael S. Tumbokon Memorial Hospital"
+    );
+    expect(JSON.stringify(serviceRequest.performer)).toContain("513");
+    const referringRole = entries.find(
+      (entry) => (entry.resource as { resourceType: string }).resourceType === "PractitionerRole"
+    )?.resource as { organization?: { reference?: string; display?: string } } | undefined;
+    expect(referringRole?.organization?.display).toBe("Kalibo Health Center - 3056");
     expect(
       entries.every((entry) =>
         (entry.resource as { text?: { div?: string } }).text?.div?.includes(
@@ -318,6 +392,35 @@ describe("PHeRef builders", () => {
     ).find((entry) => entry.resource.resourceType === "Patient");
     expect(patientEntry?.request.method).toBe("PUT");
     expect(patientEntry?.request.url).toContain(IDENTIFIER_SYSTEMS.philHealth);
+  });
+
+  it("does not emit future authored or time-called values", () => {
+    const draft = createDemoDraft();
+    draft.authoredOn = new Date(Date.now() + 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 16);
+    draft.timeCalled = new Date(Date.now() + 2 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 16);
+    const bundle = buildReferralTransactionBundle(draft);
+    const serviceRequest = (
+      bundle.entry as Array<{ resource: { resourceType: string; authoredOn?: string; occurrenceDateTime?: string } }>
+    ).find((entry) => entry.resource.resourceType === "ServiceRequest")?.resource;
+    expect(new Date(serviceRequest?.authoredOn ?? "").getTime()).toBeLessThanOrEqual(Date.now());
+    expect(new Date(serviceRequest?.occurrenceDateTime ?? "").getTime()).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("emits current referral timestamps instead of stale draft timestamps", () => {
+    const draft = createDemoDraft();
+    draft.authoredOn = "2020-01-01T08:00";
+    draft.timeCalled = "2020-01-01T08:30";
+    const beforeBuild = Date.now();
+    const bundle = buildReferralTransactionBundle(draft);
+    const serviceRequest = (
+      bundle.entry as Array<{ resource: { resourceType: string; authoredOn?: string; occurrenceDateTime?: string } }>
+    ).find((entry) => entry.resource.resourceType === "ServiceRequest")?.resource;
+    expect(new Date(serviceRequest?.authoredOn ?? "").getTime()).toBeGreaterThanOrEqual(beforeBuild);
+    expect(new Date(serviceRequest?.occurrenceDateTime ?? "").getTime()).toBeGreaterThanOrEqual(beforeBuild);
   });
 
   it("references a server Organization without fabricating receiving actors", () => {

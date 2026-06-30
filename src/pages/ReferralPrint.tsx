@@ -85,7 +85,9 @@ export function ReferralPrint() {
               [
                 "Diagnostic attachment",
                 draft.labAttachmentBase64
-                  ? `Included (${draft.labAttachmentContentType || "application/octet-stream"})`
+                  ? `${draft.labAttachmentName || "Attachment"} included (${draft.labAttachmentContentType || "application/octet-stream"})`
+                  : draft.labAttachmentUrl
+                    ? `${draft.labAttachmentName || "Attachment"} linked`
                   : "No attachment data included"
               ],
               ["Notes", draft.referralNarrative],

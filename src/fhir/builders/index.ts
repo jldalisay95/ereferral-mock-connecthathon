@@ -17,6 +17,7 @@ export interface ReferralReferences {
   serviceRequest: string;
   encounter: string;
   chiefComplaint: string;
+  clinicalHistory: string;
   workingImpression: string;
   observations: string[];
   procedure: string;
@@ -26,7 +27,10 @@ export interface ReferralReferences {
 }
 
 const profile = (url: string) => ({ profile: [url] });
-const reference = (value: string) => ({ reference: value });
+const reference = (value: string, display?: string) => ({
+  reference: value,
+  ...(display ? { display } : {})
+});
 const localResourceReference = (value: string) => {
   if (!value.startsWith("http://") && !value.startsWith("https://")) return value;
   try {
@@ -47,7 +51,9 @@ const codeable = (coding: CodingInput, text?: string) => ({
   coding: [{ system: coding.system, code: coding.code, display: coding.display }],
   ...(text ? { text } : {})
 });
+const nowDate = () => new Date();
 const iso = (value: string) => new Date(value).toISOString();
+const currentIso = () => nowDate().toISOString();
 const escapeXhtml = (value: string) =>
   value
     .replaceAll("&", "&amp;")
@@ -60,6 +66,22 @@ const narrative = (summary: string) => ({
 });
 const attachmentDataUrl = (contentType: string | undefined, base64: string) =>
   `data:${contentType || "application/octet-stream"};base64,${base64}`;
+const EREFERRAL_OBSERVATION_PROFILE =
+  "https://fhir.doh.gov.ph/pheref/StructureDefinition/ereferral-observation";
+const patientName = (draft: ReferralDraft) =>
+  [draft.patient.given, draft.patient.middle, draft.patient.family]
+    .filter(Boolean)
+    .join(" ");
+const organizationIdentifier = (facility: ReferralDraft["initiatingFacility"]) => {
+  if (facility.nhfrCode) return facility.nhfrCode;
+  if (!facility.fhirReference) return "";
+  const parsedReference = localResourceReference(facility.fhirReference);
+  return parsedReference.split("/").pop() ?? "";
+};
+const facilityDisplay = (facility: ReferralDraft["initiatingFacility"]) =>
+  [facility.name, organizationIdentifier(facility)]
+    .filter(Boolean)
+    .join(" - ");
 
 function address(input: ReferralDraft["patient"]["address"]) {
   const geographicExtensions = [
@@ -197,18 +219,21 @@ export function buildPractitioner(
 export function buildPractitionerRole(
   person: ReferralDraft["referringPractitioner"],
   practitionerRef: string,
-  organizationRef: string
+  organizationRef: string,
+  organizationDisplay?: string
 ): FhirResource {
   return {
     resourceType: "PractitionerRole",
     meta: profile(PROFILES.practitionerRole),
     language: "en",
     text: narrative(
-      `${person.role.display} for ${person.given} ${person.family}`
+      `${person.role.display} for ${person.given} ${person.family}${
+        organizationDisplay ? ` at ${organizationDisplay}` : ""
+      }`
     ),
     identifier: [{ system: IDENTIFIER_SYSTEMS.prc, value: person.license }],
     practitioner: reference(practitionerRef),
-    organization: reference(organizationRef),
+    organization: reference(organizationRef, organizationDisplay),
     code: [codeable(person.role)]
   };
 }
@@ -244,7 +269,7 @@ export function buildEncounter(draft: ReferralDraft, refs: ReferralReferences): 
       code: "AMB",
       display: "ambulatory"
     },
-    subject: reference(refs.patient),
+    subject: reference(refs.patient, patientName(draft)),
     basedOn: [reference(refs.serviceRequest)]
   };
 }
@@ -278,8 +303,40 @@ export function buildChiefComplaintCondition(
       }
     ],
     code: { text: draft.chiefComplaint },
-    subject: reference(refs.patient),
+    subject: reference(refs.patient, patientName(draft)),
     encounter: reference(refs.encounter),
+    note: [{ text: draft.clinicalHistory }]
+  };
+}
+
+export function buildClinicalHistoryObservation(
+  draft: ReferralDraft,
+  refs: ReferralReferences
+): FhirResource {
+  return {
+    resourceType: "Observation",
+    language: "en",
+    text: narrative(`Clinical history: ${draft.clinicalHistory}`),
+    status: "final",
+    category: [
+      {
+        coding: [
+          {
+            system: "http://terminology.hl7.org/CodeSystem/observation-category",
+            code: "exam",
+            display: "Exam"
+          }
+        ]
+      }
+    ],
+    code: {
+      text: "Clinical history"
+    },
+    subject: reference(refs.patient, patientName(draft)),
+    encounter: reference(refs.encounter),
+    performer: [reference(refs.referringRole)],
+    effectiveDateTime: currentIso(),
+    valueString: draft.clinicalHistory,
     note: [{ text: draft.clinicalHistory }]
   };
 }
@@ -322,24 +379,12 @@ export function buildWorkingImpressionCondition(
       }
     ],
     code: codeable(draft.clinicalReason, draft.workingImpressionText),
-    subject: reference(refs.patient),
+    subject: reference(refs.patient, patientName(draft)),
     encounter: reference(refs.encounter)
   };
 }
 
 const vitalDefinitions = {
-  systolic: {
-    code: "8480-6",
-    display: "Systolic blood pressure",
-    unit: "mmHg",
-    unitCode: "mm[Hg]"
-  },
-  diastolic: {
-    code: "8462-4",
-    display: "Diastolic blood pressure",
-    unit: "mmHg",
-    unitCode: "mm[Hg]"
-  },
   heartRate: {
     code: "8867-4",
     display: "Heart rate",
@@ -372,6 +417,87 @@ const vitalDefinitions = {
   }
 } as const;
 
+const bloodPressureComponents = [
+  {
+    key: "systolic",
+    loincCode: "8480-6",
+    snomedCode: "271649006",
+    display: "Systolic blood pressure"
+  },
+  {
+    key: "diastolic",
+    loincCode: "8462-4",
+    snomedCode: "271650006",
+    display: "Diastolic blood pressure"
+  }
+] as const;
+
+export function buildBloodPressureObservation(
+  draft: ReferralDraft,
+  refs: ReferralReferences
+): FhirResource {
+  return {
+    resourceType: "Observation",
+    meta: profile(EREFERRAL_OBSERVATION_PROFILE),
+    language: "en",
+    text: narrative(
+      `Blood pressure: ${draft.vitals.systolic}/${draft.vitals.diastolic} mmHg`
+    ),
+    status: "final",
+    category: [
+      {
+        coding: [
+          {
+            system: "http://terminology.hl7.org/CodeSystem/observation-category",
+            code: "vital-signs",
+            display: "Vital Signs"
+          }
+        ]
+      }
+    ],
+    code: {
+      coding: [
+        {
+          system: "http://loinc.org",
+          code: "85354-9",
+          display: "Blood pressure panel with all children optional"
+        },
+        {
+          system: "http://snomed.info/sct",
+          code: "75367002",
+          display: "Blood pressure"
+        }
+      ]
+    },
+    subject: reference(refs.patient, patientName(draft)),
+    encounter: reference(refs.encounter),
+    performer: [reference(refs.referringRole)],
+    effectiveDateTime: iso(draft.vitals.observedAt),
+    component: bloodPressureComponents.map((component) => ({
+      code: {
+        coding: [
+          {
+            system: "http://loinc.org",
+            code: component.loincCode,
+            display: component.display
+          },
+          {
+            system: "http://snomed.info/sct",
+            code: component.snomedCode,
+            display: component.display
+          }
+        ]
+      },
+      valueQuantity: {
+        value: draft.vitals[component.key],
+        unit: "mmHg",
+        system: "http://unitsofmeasure.org",
+        code: "mm[Hg]"
+      }
+    }))
+  };
+}
+
 export function buildVitalSignObservation(
   draft: ReferralDraft,
   refs: ReferralReferences,
@@ -397,7 +523,7 @@ export function buildVitalSignObservation(
     code: {
       coding: [{ system: "http://loinc.org", code: definition.code, display: definition.display }]
     },
-    subject: reference(refs.patient),
+    subject: reference(refs.patient, patientName(draft)),
     encounter: reference(refs.encounter),
     performer: [reference(refs.referringRole)],
     effectiveDateTime: iso(draft.vitals.observedAt),
@@ -426,7 +552,7 @@ export function buildProcedure(draft: ReferralDraft, refs: ReferralReferences): 
         }
       ]
     },
-    subject: reference(refs.patient),
+    subject: reference(refs.patient, patientName(draft)),
     encounter: reference(refs.encounter),
     note: [{ text: draft.treatment }]
   };
@@ -436,27 +562,32 @@ export function buildDiagnosticReport(
   draft: ReferralDraft,
   refs: ReferralReferences
 ): FhirResource {
+  const attachmentTitle =
+    draft.labAttachmentName || draft.labTitle || "Diagnostic report attachment";
   const report: FhirResource = {
     resourceType: "DiagnosticReport",
     language: "en",
-    text: narrative(`${draft.labTitle}: ${draft.labConclusion}`),
+    text: narrative(
+      `${attachmentTitle}: ${draft.labConclusion}`
+    ),
     status: "final",
-    code: { text: draft.labTitle },
+    code: { text: attachmentTitle },
     subject: reference(refs.patient),
-    encounter: reference(refs.encounter),
-    conclusion: draft.labConclusion
+    issued: currentIso(),
+    conclusion: draft.labConclusion,
+    presentedForm: draft.labAttachmentBase64
+      ? [
+          {
+            url: attachmentDataUrl(
+              draft.labAttachmentContentType,
+              draft.labAttachmentBase64
+            )
+          }
+        ]
+      : draft.labAttachmentUrl
+        ? [{ url: draft.labAttachmentUrl, title: attachmentTitle }]
+      : [{ title: attachmentTitle }]
   };
-  if (draft.labAttachmentBase64) {
-    report.presentedForm = [
-      {
-        url: attachmentDataUrl(
-          draft.labAttachmentContentType,
-          draft.labAttachmentBase64
-        ),
-        title: draft.labTitle
-      }
-    ];
-  }
   return report;
 }
 
@@ -491,17 +622,24 @@ export function buildServiceRequest(
     ],
     priority: draft.priority,
     code: codeable(draft.requestedService),
-    subject: reference(refs.patient),
+    subject: reference(refs.patient, patientName(draft)),
     encounter: reference(refs.encounter),
-    occurrenceDateTime: iso(draft.timeCalled),
-    authoredOn: iso(draft.authoredOn),
-    requester: reference(refs.referringRole),
-    performer: [reference(refs.receivingRole)],
+    occurrenceDateTime: currentIso(),
+    authoredOn: currentIso(),
+    requester: reference(refs.referringRole, facilityDisplay(draft.initiatingFacility)),
+    performer: [
+      reference(refs.receivingOrganization, facilityDisplay(draft.receivingFacility))
+    ],
     reasonCode: [codeable(draft.requestedService, draft.referralNarrative)],
-    reasonReference: [reference(refs.workingImpression)],
+    reasonReference: [
+      reference(refs.chiefComplaint),
+      reference(refs.workingImpression)
+    ],
     supportingInfo: [
       reference(refs.chiefComplaint),
-      ...refs.observations.map(reference),
+      reference(refs.clinicalHistory),
+      reference(refs.workingImpression),
+      ...refs.observations.map((observation) => reference(observation)),
       reference(refs.procedure)
     ],
     note: [
@@ -531,11 +669,11 @@ export function buildTask(draft: ReferralDraft, refs: ReferralReferences): FhirR
       text: draft.referralNarrative
     },
     focus: reference(refs.serviceRequest),
-    for: reference(refs.patient),
-    authoredOn: iso(draft.authoredOn),
-    lastModified: iso(draft.authoredOn),
-    requester: reference(refs.referringRole),
-    owner: reference(refs.receivingRole),
+    for: reference(refs.patient, patientName(draft)),
+    authoredOn: currentIso(),
+    lastModified: currentIso(),
+    requester: reference(refs.referringRole, facilityDisplay(draft.initiatingFacility)),
+    owner: reference(refs.receivingRole, facilityDisplay(draft.receivingFacility)),
     note: [{ text: "Referral awaiting receiving-facility response." }]
   };
 }
@@ -550,7 +688,7 @@ export function buildProvenance(
     language: "en",
     text: narrative(`Referral creation provenance for ${draft.referralId}`),
     target: [reference(refs.serviceRequest)],
-    recorded: iso(draft.authoredOn),
+    recorded: currentIso(),
     activity: {
       coding: [
         {
@@ -585,7 +723,7 @@ export function buildProvenance(
             display: "Verification Signature"
           }
         ],
-        when: iso(draft.authoredOn),
+        when: currentIso(),
         who: reference(refs.referringRole),
         data: draft.signatureBase64
       }
@@ -614,8 +752,9 @@ export function buildReferralTransactionBundle(draft: ReferralDraft): FhirResour
     serviceRequest: newUrn(),
     encounter: newUrn(),
     chiefComplaint: newUrn(),
+    clinicalHistory: newUrn(),
     workingImpression: newUrn(),
-    observations: Array.from({ length: 7 }, newUrn),
+    observations: Array.from({ length: 6 }, newUrn),
     procedure: newUrn(),
     diagnosticReport: newUrn(),
     task: newUrn(),
@@ -663,7 +802,8 @@ export function buildReferralTransactionBundle(draft: ReferralDraft): FhirResour
       resource: buildPractitionerRole(
         draft.referringPractitioner,
         refs.referringPractitioner,
-        refs.initiatingOrganization
+        refs.initiatingOrganization,
+        facilityDisplay(draft.initiatingFacility)
       ),
       request: {
         method: "PUT",
@@ -696,7 +836,8 @@ export function buildReferralTransactionBundle(draft: ReferralDraft): FhirResour
         resource: buildPractitionerRole(
           draft.receivingPractitioner,
           refs.receivingPractitioner,
-          refs.receivingOrganization
+          refs.receivingOrganization,
+          facilityDisplay(draft.receivingFacility)
         ),
         request: {
           method: "PUT",
@@ -706,8 +847,7 @@ export function buildReferralTransactionBundle(draft: ReferralDraft): FhirResour
     );
   }
   const observations = [
-    buildVitalSignObservation(draft, refs, "systolic"),
-    buildVitalSignObservation(draft, refs, "diastolic"),
+    buildBloodPressureObservation(draft, refs),
     buildVitalSignObservation(draft, refs, "heartRate"),
     buildVitalSignObservation(draft, refs, "respiratoryRate"),
     buildVitalSignObservation(draft, refs, "oxygenSaturation"),
@@ -718,6 +858,7 @@ export function buildReferralTransactionBundle(draft: ReferralDraft): FhirResour
     [refs.serviceRequest, buildServiceRequest(draft, refs)],
     [refs.encounter, buildEncounter(draft, refs)],
     [refs.chiefComplaint, buildChiefComplaintCondition(draft, refs)],
+    [refs.clinicalHistory, buildClinicalHistoryObservation(draft, refs)],
     [refs.workingImpression, buildWorkingImpressionCondition(draft, refs)],
     ...observations.map(
       (observation, index): [string, FhirResource] => [refs.observations[index], observation]

@@ -1,5 +1,11 @@
 import type { ReferralDraft } from "../types";
 
+function isFutureDateTime(value: string) {
+  if (!value) return false;
+  const date = new Date(value.includes("T") && !value.endsWith("Z") ? `${value}:00` : value);
+  return !Number.isNaN(date.getTime()) && date > new Date();
+}
+
 export function getReferralSubmissionMissing(draft: ReferralDraft): string[] {
   return [
     !draft.referralCriteriaSatisfied && "Referral criteria decision",
@@ -16,6 +22,8 @@ export function getReferralSubmissionMissing(draft: ReferralDraft): string[] {
     !draft.clinicalReason.code && "Clinical reason code",
     !draft.chiefComplaint && "Chief complaint",
     !draft.workingImpressionText && "Working impression",
+    isFutureDateTime(draft.authoredOn) && "Referral date/time must not be in the future",
+    isFutureDateTime(draft.timeCalled) && "Time called must not be in the future",
     draft.patient.pwdEnabled &&
       !draft.patient.disabilities.length &&
       "PWD disability type"
