@@ -1,0 +1,42 @@
+name: FHIR conformance report
+description: Report an IG, profile, terminology, Bundle, or validation mismatch.
+title: "[FHIR]: "
+labels: [fhir, conformance]
+body:
+  - type: markdown
+    attributes:
+      value: "Use synthetic examples only. Redact server identifiers and attach only sanitized OperationOutcome content."
+  - type: input
+    id: ig
+    attributes:
+      label: IG and version
+      placeholder: PHeRef/PH Core version or build URL
+    validations:
+      required: true
+  - type: input
+    id: config-key
+    attributes:
+      label: Related configuration key
+      placeholder: profiles.patient, psgc.version, terminology.valueSets...
+    validations:
+      required: true
+  - type: textarea
+    id: fhir-path
+    attributes:
+      label: Resource and FHIR path
+      placeholder: Bundle.entry[0].resource/*Patient.address[0]
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Sanitized OperationOutcome or diagnostics
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy confirmation
+      options:
+        - label: This report contains synthetic data only and no secrets or patient information.
+          required: true

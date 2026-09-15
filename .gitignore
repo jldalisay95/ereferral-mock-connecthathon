@@ -2,8 +2,12 @@ node_modules
 dist
 .env
 .env.local
+.env.*.local
 coverage
 *.log
+*.key
+*.pem
+*.p12
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts

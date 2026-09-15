@@ -1,11 +1,35 @@
 # Local EMR eReferral Mock
 
+[![CI](https://github.com/jldalisay95/ereferral-mock-connecthathon/actions/workflows/ci.yml/badge.svg)](https://github.com/jldalisay95/ereferral-mock-connecthathon/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 A React and TypeScript facility workflow demo for the June 2026 Philippines
 FHIR Connectathon. It demonstrates local patient registration, referral
-creation, PHeReF Bundle validation and submission, receiving-facility response,
-notifications, tracking, timeline review, and printing.
+creation, PHeRef Bundle validation and guarded submission, receiving-facility
+response, notifications, tracking, timeline review, and printing.
 
 This is a Connectathon mock, not a production EMR. Use synthetic data only.
+
+## Choose a track
+
+This repository has one implementation and two build presets. A fresh clone is
+safe by default.
+
+| Track | Command | What it permits |
+|---|---|---|
+| Participant Starter (default) | `npm run dev` | Remote reads, terminology, Bundle preview, and `$validate`; all external writes are blocked at the FHIR client boundary |
+| Connectathon Ready | `npm run dev:ready` | Validated Organization publishing plus the send, receive, and Task-update workflow after successful non-blocking validation |
+
+Do not change branches to graduate. Fork the repository, edit
+[`src/config/connectathon.config.ts`](src/config/connectathon.config.ts), use the
+in-app **Connectathon Guide**, and explicitly restart with the ready command.
+The preset is build configuration and cannot be enabled by a stored `demoMode`.
+
+Guides:
+
+- [Participant fork, configure, and validate](docs/PARTICIPANT_STARTER.md)
+- [Ready send and receive workflow](docs/CONNECTATHON_READY.md)
+- [Configuration-to-FHIR/IG mapping](docs/IG_MAPPING.md)
 
 ## Source of truth
 
@@ -30,12 +54,17 @@ Connectathon validation server:
 Requirements: Node.js 20 or later and npm.
 
 ```powershell
+git clone https://github.com/jldalisay95/ereferral-mock-connecthathon.git
+cd ereferral-mock-connecthathon
 npm install
-Copy-Item .env.example .env
 npm run dev
 ```
 
 Open `http://localhost:5173`.
+
+Endpoint environment overrides are optional. Copy `.env.example` to
+`.env.participant.local` or `.env.ready.local` and edit only the URLs you need.
+Never put secrets in `VITE_*` values because Vite exposes them to the browser.
 
 ## Demo accounts
 
@@ -50,6 +79,29 @@ All accounts use password `demo123`.
 
 Credentials and browser sessions are mock data stored locally. They do not
 provide production authentication or authorization.
+
+## Create your own facility
+
+From the login page, select **Create a facility account** in either preset.
+Enter synthetic facility, practitioner, PSGC address, username, and password
+values. The facility and account are saved together in this browser and the new
+account is signed in automatically. Signup never sends a FHIR write.
+
+In the participant preset, the local facility remains usable while all external
+writes stay locked. In the ready preset, open **Connectathon Guide** and choose
+**Validate and publish Organization**. The app asks for confirmation, calls
+`Organization/$validate`, and sends an idempotent NHFR conditional transaction
+only when validation has no blocking issues. A failed validation or network
+request does not remove the local account.
+
+Passwords are stored in browser-local demonstration state. Never reuse a real
+password or enter real facility secrets or patient data.
+
+## Screenshots
+
+![Facility login and self-registration entry point](artifacts/login.png)
+
+![Participant facility self-registration](artifacts/facility-registration.png)
 
 ## Contextual facility behavior
 
@@ -79,7 +131,8 @@ Admin can review all local records but cannot perform facility workflow actions.
 7. Review category, priority, requested service, clinical reason, time called,
    notes, practitioners, and signature placeholder.
 8. Preview and validate the generated transaction Bundle.
-9. Submit in Demo mode and open the referral detail or print view.
+9. In the participant preset, inspect the validation and JSON. In the ready
+   preset, submit only after validation succeeds.
 
 ### Receive and update a referral
 
@@ -175,7 +228,8 @@ DiagnosticReport at that path.
 
 ## Validation and endpoints
 
-Defaults:
+Tracked fork defaults are in `src/config/connectathon.config.ts`. Admin Settings
+may override only these endpoint values in the current browser:
 
 ```dotenv
 VITE_PHEREF_BASE_URL=https://cdr.pheref.fhirlab.net/fhir
@@ -188,9 +242,14 @@ Bundle validation uses `POST {PHeReF CDR}/Bundle/$validate`. The app parses
 warning and information issues are non-blocking. HTTP 200 alone is not treated
 as successful validation.
 
-Demo mode is enabled by default. It permits metadata, terminology, search, and
-validation calls but resolves referral submissions and Task writes locally.
-Only Admin can disable Demo mode and enable external writes.
+The participant preset is the default. It permits metadata, terminology,
+search, preview, and validation calls, while transaction POST, resource PUT or
+PATCH, facility-registration writes, and Task updates are denied by the FHIR
+service boundary. `$validate` remains permitted because it is non-mutating.
+
+The ready preset enables the workflow capability, but a referral still cannot
+be submitted until the latest `$validate` result is non-blocking. Admin may use
+Demo mode for local workflow simulation only while the ready preset is active.
 
 ## Notifications, timeline, and print
 
@@ -211,6 +270,7 @@ routing, clinical, consent, status, and synthetic signature information.
 npm run lint
 npm run test
 npm run build
+npm run build:ready
 ```
 
 Vitest is limited to tests under `src/` and excludes generated or tool-managed
