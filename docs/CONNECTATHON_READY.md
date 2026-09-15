@@ -15,7 +15,9 @@ to be completed and non-blocking.
 ## Live terminology is mandatory
 
 Ready mode obtains every configured form ValueSet with a read-only
-`GET {terminologyBaseUrl}/ValueSet/$expand?url={canonical}` request. This
+`GET {selectedEndpoint}/ValueSet/$expand?url={canonical}` request. The
+`endpoint` on each `terminology.valueSets` entry selects PHeRef, PH Core, or the
+dedicated terminology server. This
 includes referral category, referral service type, practitioner role, patient
 relationship, PWD disability type, administrative gender, request priority,
 and the PSGC address ValueSets. An error or empty expansion disables the
@@ -26,6 +28,10 @@ The application does not create, update, or delete CodeSystem or ValueSet
 resources on the terminology server. Configure the endpoint and canonical URLs
 in `src/config/connectathon.config.ts`, then use **Terminology Check** and
 **Connectathon Guide** to diagnose server availability.
+
+Ready endpoint editing remains unchanged: Admin may use **Settings**, or a fork
+may use `.env.ready.local`. Profiles, identifiers, ValueSet canonicals/routing,
+and PSGC configuration remain in `src/config/connectathon.config.ts`.
 
 ## Publish a self-registered facility
 

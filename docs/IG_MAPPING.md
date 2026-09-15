@@ -1,7 +1,8 @@
 # Configuration to FHIR / IG mapping
 
-The in-app **Connectathon Guide** shows these values after Admin or environment
-endpoint overrides. Fork defaults are edited in
+The public **Participant Setup** page and signed-in **Connectathon Guide** show
+effective values after browser or environment endpoint overrides. Ready-mode
+browser overrides remain in Admin Settings. Fork defaults are edited in
 `src/config/connectathon.config.ts`.
 
 | Configuration key | Generated or tested FHIR location |

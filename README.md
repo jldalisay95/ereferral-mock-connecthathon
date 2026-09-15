@@ -20,6 +20,13 @@ safe by default.
 | Participant Starter (default) | `npm run dev` | Remote reads, terminology, Bundle preview, and `$validate`; all external writes are blocked at the FHIR client boundary |
 | Connectathon Ready | `npm run dev:ready` | Validated Organization publishing plus the send, receive, and Task-update workflow after successful non-blocking validation |
 
+| Configuration task | Participant Starter | Connectathon Ready |
+|---|---|---|
+| Browser endpoint override | Public **Participant Setup** page | Admin **Settings** |
+| Mode-specific endpoint file | `.env.participant.local` | `.env.ready.local` |
+| Profiles, identifiers, ValueSets, and PSGC | `src/config/connectathon.config.ts` | The same tracked configuration |
+| External writes | Always blocked | Guarded by validation and ready capabilities |
+
 Connectathon Ready requires successful live `$expand` responses for configured
 FHIR and PSGC ValueSets. It never substitutes bundled terminology. All
 terminology requests are read-only; the app does not modify CodeSystem or
@@ -66,6 +73,11 @@ npm run dev
 ```
 
 Open `http://localhost:5173`.
+
+In Participant Starter, select **Configure Participant Starter** before login.
+The public setup page explains each endpoint, saves browser-local URL overrides,
+and runs read-only metadata, profile, terminology, and PSGC checks. After the
+checks, continue to local facility registration or sign in with a bundled account.
 
 Endpoint environment overrides are optional. Copy `.env.example` to
 `.env.participant.local` or `.env.ready.local` and edit only the URLs you need.
@@ -233,8 +245,9 @@ DiagnosticReport at that path.
 
 ## Validation and endpoints
 
-Tracked fork defaults are in `src/config/connectathon.config.ts`. Admin Settings
-may override only these endpoint values in the current browser:
+Tracked fork defaults are in `src/config/connectathon.config.ts`. The public
+Participant Setup page may override only these endpoint values in the starter
+track; Admin Settings provides the existing browser override in the ready track:
 
 ```dotenv
 VITE_PHEREF_BASE_URL=https://cdr.pheref.fhirlab.net/fhir
@@ -267,6 +280,12 @@ one ValueSet expand from the PHeRef CDR while another expands from the dedicated
 terminology server. The `canonical` continues to identify the ValueSet and must
 not be replaced with the server URL. The Terminology Check and Connectathon
 Guide show the effective source used by every configured ValueSet.
+
+To edit source configuration, search `src/config/connectathon.config.ts` for
+`EDIT FOR YOUR FORK`. Change `ig.*`, `profiles.*`, `extensions.*`,
+`identifierSystems.*`, `terminology.valueSets`, and `psgc.*` only when the
+active Connectathon IG or test lead supplies replacement values. Browser setup
+does not edit these conformance canonicals.
 
 ## Notifications, timeline, and print
 

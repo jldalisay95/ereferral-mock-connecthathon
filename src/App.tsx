@@ -8,6 +8,7 @@ import { Inbox } from "./pages/Inbox";
 import { Login } from "./pages/Login";
 import { NewReferral } from "./pages/NewReferral";
 import { PatientRegistry } from "./pages/PatientRegistry";
+import { ParticipantSetup } from "./pages/ParticipantSetup";
 import { ReferralDetail } from "./pages/ReferralDetail";
 import { ReferralPreview } from "./pages/ReferralPreview";
 import { ReferralPrint } from "./pages/ReferralPrint";
@@ -24,6 +25,7 @@ export function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/participant-setup" element={<ParticipantSetup />} />
           <Route path="/register" element={<RegisterFacility />} />
           <Route element={<ProtectedRoute />}>
             <Route element={<Layout />}>

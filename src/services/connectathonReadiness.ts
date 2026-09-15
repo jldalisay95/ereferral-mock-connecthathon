@@ -154,7 +154,7 @@ async function terminologyCheck(
     status: failures.length ? "fail" : "pass",
     configKey: failures.length ? "terminology.valueSets" : "terminology.valueSets.*",
     detail: failures.length
-      ? `Fallback codes do not satisfy readiness. Live failures: ${failures.join("; ")}`
+      ? `Live expansion is required. Failures: ${failures.join("; ")}`
       : `${config.terminology.valueSets.length} ValueSets expanded live.`
   };
 }

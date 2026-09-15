@@ -5,7 +5,8 @@ import {
 } from "../config/connectathon.config";
 import {
   checkConfiguredUrls,
-  checkPsgcCompatibility
+  checkPsgcCompatibility,
+  runRemoteReadinessChecks
 } from "./connectathonReadiness";
 import { terminologyCacheKey } from "./terminologyClient";
 
@@ -101,5 +102,77 @@ describe("Connectathon configuration consumers", () => {
       ),
       expect.any(Object)
     );
+  });
+
+  it("runs participant readiness using read-only HTTP requests", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/metadata")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            resourceType: "CapabilityStatement",
+            fhirVersion: CONNECTATHON_CONFIG.ig.fhirVersion
+          })
+        } as Response;
+      }
+      if (url.pathname.endsWith("/ValueSet/$expand")) {
+        const psgc =
+          url.searchParams.get("url") === CONNECTATHON_CONFIG.psgc.valueSets.all;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            resourceType: "ValueSet",
+            expansion: {
+              contains: [
+                {
+                  system: psgc
+                    ? CONNECTATHON_CONFIG.codeSystems.psgc
+                    : "https://example.test/CodeSystem/live",
+                  code: "live-code",
+                  display: "Live code",
+                  ...(psgc ? { version: CONNECTATHON_CONFIG.psgc.version } : {})
+                }
+              ]
+            }
+          })
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          resourceType: "Bundle",
+          entry: [{ resource: { resourceType: "StructureDefinition" } }]
+        })
+      } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const participantConfig: ConnectathonConfig = {
+      ...CONNECTATHON_CONFIG,
+      preset: "participant",
+      capabilities: {
+        ...CONNECTATHON_CONFIG.capabilities,
+        externalWrites: false
+      }
+    };
+    const endpoints = {
+      ...CONNECTATHON_CONFIG.endpoints,
+      pherefBaseUrl: "https://read-only-pheref.example/fhir",
+      phCoreBaseUrl: "https://read-only-phcore.example/fhir",
+      terminologyBaseUrl: "https://read-only-tx.example/fhir"
+    };
+
+    const results = await runRemoteReadinessChecks(participantConfig, endpoints);
+
+    expect(results.every((result) => result.status === "pass")).toBe(true);
+    expect(fetchMock).toHaveBeenCalled();
+    for (const [, init] of fetchMock.mock.calls as Array<
+      [RequestInfo | URL, RequestInit | undefined]
+    >) {
+      expect([undefined, "GET"]).toContain(init?.method);
+    }
   });
 });

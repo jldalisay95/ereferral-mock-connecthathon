@@ -4,7 +4,7 @@ import { useAppContext } from "../context/useAppContext";
 import { DEMO_ACCOUNTS } from "../data/facilities";
 
 export function Login() {
-  const { currentAccount, login } = useAppContext();
+  const { connectathonConfig, currentAccount, login } = useAppContext();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -54,6 +54,11 @@ export function Login() {
           <button type="submit" disabled={!username || !password}>Login</button>
         </form>
         <div className="button-row login-register-action">
+          {connectathonConfig.preset === "participant" ? (
+            <Link className="button" to="/participant-setup">
+              Configure Participant Starter
+            </Link>
+          ) : null}
           <Link className="button secondary" to="/register">
             Create a facility account
           </Link>

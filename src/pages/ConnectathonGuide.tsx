@@ -1,7 +1,13 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { FacilityPublishControl } from "../components/FacilityPublishControl";
-import { resolveValueSetEndpoint } from "../config/connectathon.config";
+import { TrackComparison } from "../components/TrackComparison";
+import {
+  ENDPOINT_ENV_KEYS,
+  endpointValueSource,
+  resolveValueSetEndpoint,
+  type EndpointConfigKey
+} from "../config/connectathon.config";
 import { useAppContext } from "../context/useAppContext";
 import {
   checkConfiguredUrls,
@@ -15,6 +21,7 @@ interface MappingRow {
   key: string;
   value: string;
   usage: string;
+  editSource: string;
 }
 
 export function ConnectathonGuide() {
@@ -82,26 +89,37 @@ export function ConnectathonGuide() {
     requiredResults.length >= 9 &&
     requiredResults.every((result) => result.status === "pass");
 
-  const mappingRows = useMemo<MappingRow[]>(
-    () => [
-      { key: "endpoints.pherefBaseUrl", value: endpoints.pherefBaseUrl, usage: "PHeRef metadata, Bundle $validate, referral transactions, Task reads/updates" },
-      { key: "endpoints.phCoreBaseUrl", value: endpoints.phCoreBaseUrl, usage: "PH Core CapabilityStatement and StructureDefinition discovery" },
-      { key: "endpoints.terminologyBaseUrl", value: endpoints.terminologyBaseUrl, usage: "Default terminology and PSGC ValueSet/$expand requests" },
-      { key: "ig.version", value: config.ig.version, usage: "Readiness report and terminology cache isolation" },
-      { key: "ig.fhirVersion", value: config.ig.fhirVersion, usage: "CapabilityStatement compatibility check" },
-      ...Object.entries(config.profiles).map(([key, value]) => ({ key: `profiles.${key}`, value, usage: "Generated resource meta.profile and StructureDefinition readiness check" })),
-      ...Object.entries(config.identifierSystems).map(([key, value]) => ({ key: `identifierSystems.${key}`, value, usage: "Generated resource identifier.system" })),
+  const endpointEditSource = (key: EndpointConfigKey) => {
+    const source = endpointValueSource(key, endpoints[key]);
+    if (source === "browser") {
+      return config.preset === "participant"
+        ? "Participant Setup (browser-local)"
+        : "Admin Settings (browser-local)";
+    }
+    if (source === "environment") {
+      return `.env.${config.preset}.local (${ENDPOINT_ENV_KEYS[key]})`;
+    }
+    return CONFIG_FILE;
+  };
+
+  const mappingRows: MappingRow[] = [
+      { key: "endpoints.pherefBaseUrl", value: endpoints.pherefBaseUrl, usage: "PHeRef metadata, Bundle $validate, referral transactions, Task reads/updates", editSource: endpointEditSource("pherefBaseUrl") },
+      { key: "endpoints.phCoreBaseUrl", value: endpoints.phCoreBaseUrl, usage: "PH Core CapabilityStatement and StructureDefinition discovery", editSource: endpointEditSource("phCoreBaseUrl") },
+      { key: "endpoints.terminologyBaseUrl", value: endpoints.terminologyBaseUrl, usage: "Default terminology and PSGC ValueSet/$expand requests", editSource: endpointEditSource("terminologyBaseUrl") },
+      { key: "ig.version", value: config.ig.version, usage: "Readiness report and terminology cache isolation", editSource: CONFIG_FILE },
+      { key: "ig.fhirVersion", value: config.ig.fhirVersion, usage: "CapabilityStatement compatibility check", editSource: CONFIG_FILE },
+      ...Object.entries(config.profiles).map(([key, value]) => ({ key: `profiles.${key}`, value, usage: "Generated resource meta.profile and StructureDefinition readiness check", editSource: CONFIG_FILE })),
+      ...Object.entries(config.identifierSystems).map(([key, value]) => ({ key: `identifierSystems.${key}`, value, usage: "Generated resource identifier.system", editSource: CONFIG_FILE })),
       ...config.terminology.valueSets.map((valueSet) => ({
         key: `terminology.valueSets.${valueSet.key}`,
         value: valueSet.canonical,
-        usage: `Required live expansion for ${valueSet.label} via ${valueSet.endpoint} (${resolveValueSetEndpoint(valueSet, endpoints)}); no local fallback`
+        usage: `Required live expansion for ${valueSet.label} via ${valueSet.endpoint} (${resolveValueSetEndpoint(valueSet, endpoints)}); no local fallback`,
+        editSource: CONFIG_FILE
       })),
-      { key: "codeSystems.psgc", value: config.codeSystems.psgc, usage: "Address PSGC Coding.system when optional extensions are enabled" },
-      { key: "psgc.version", value: config.psgc.version, usage: "PSGC compatibility checks, Coding.version, and cache isolation" },
-      { key: "features.includePsgcExtensions", value: String(config.features.includePsgcExtensions), usage: "Controls optional PH Core geographic Address extensions" }
-    ],
-    [config, endpoints]
-  );
+      { key: "codeSystems.psgc", value: config.codeSystems.psgc, usage: "Address PSGC Coding.system when optional extensions are enabled", editSource: CONFIG_FILE },
+      { key: "psgc.version", value: config.psgc.version, usage: "PSGC compatibility checks, Coding.version, and cache isolation", editSource: CONFIG_FILE },
+      { key: "features.includePsgcExtensions", value: String(config.features.includePsgcExtensions), usage: "Controls optional PH Core geographic Address extensions", editSource: CONFIG_FILE }
+    ];
 
   async function runChecks() {
     setChecking(true);
@@ -124,7 +142,7 @@ export function ConnectathonGuide() {
             ready preset. This page never enables writes automatically.
           </p>
           <p>
-            Ready mode populates coded fields only from live, read-only
+            Both tracks populate coded fields only from live, read-only
             <code> ValueSet/$expand</code> requests. It never uploads or changes
             CodeSystem or ValueSet resources on the terminology server.
           </p>
@@ -137,6 +155,27 @@ export function ConnectathonGuide() {
             Open active IG
           </a>
         </div>
+      </section>
+
+      {config.preset === "participant" ? (
+        <section className="card">
+          <p className="eyebrow">Participant path</p>
+          <h2>From setup to a validated Bundle</h2>
+          <ol className="guide-steps">
+            <li><strong>Configure.</strong> Use <Link to="/participant-setup">Participant Setup</Link> for browser endpoints, or edit the fork and <code>.env.participant.local</code>.</li>
+            <li><strong>Test.</strong> Confirm metadata, profiles, live ValueSets, and PSGC using read-only checks.</li>
+            <li><strong>Onboard.</strong> Create a browser-local synthetic facility account if needed.</li>
+            <li><strong>Build.</strong> Generate a referral and inspect its transaction Bundle.</li>
+            <li><strong>Validate.</strong> Run <code>$validate</code> and resolve blocking issues.</li>
+            <li><strong>Graduate.</strong> Stop the starter server and explicitly run <code>npm run dev:ready</code>.</li>
+          </ol>
+        </section>
+      ) : null}
+
+      <section className="card">
+        <p className="eyebrow">Track comparison</p>
+        <h2>Configuration and permissions</h2>
+        <TrackComparison />
       </section>
 
       <section className={`notice ${checksPassed ? "" : "warning"}`} aria-live="polite">
@@ -219,7 +258,7 @@ export function ConnectathonGuide() {
                   <td><code>{row.key}</code></td>
                   <td><code>{row.value}</code></td>
                   <td>{row.usage}</td>
-                  <td><code>{CONFIG_FILE}</code></td>
+                  <td><code>{row.editSource}</code></td>
                 </tr>
               ))}
             </tbody>

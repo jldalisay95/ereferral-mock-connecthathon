@@ -8,6 +8,11 @@ export function Layout() {
   const facilityUser = currentAccount.role === "facility_user";
   const navigation = [
     ["/dashboard", "Dashboard", true],
+    [
+      "/participant-setup",
+      "Participant Setup",
+      connectathonConfig.preset === "participant"
+    ],
     ["/connectathon-guide", "Connectathon Guide", true],
     ["/patients", "Patient Registry", facilityUser],
     ["/referrals/new", "Generate Referral", facilityUser],

@@ -139,6 +139,7 @@ async function login(user: ReturnType<typeof userEvent.setup>, username: string)
 describe("application workflow", () => {
   beforeEach(() => {
     cleanup();
+    window.history.replaceState({}, "", "/login");
     localStorage.clear();
     sessionStorage.clear();
     clearPsgcDirectoryCache();
@@ -184,6 +185,22 @@ describe("application workflow", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "PSGC Regions" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "PSGC Barangays" })).toBeInTheDocument();
+  });
+
+  it("keeps the public participant setup read-only when the ready preset is active", () => {
+    window.history.replaceState({}, "", "/participant-setup");
+    render(<App />);
+
+    expect(
+      screen.getByRole("heading", { name: "Participant Starter Setup" })
+    ).toBeInTheDocument();
+    expect(screen.getByText(/ready preset is active/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: /^PHeRef FHIR server URL/ })
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Save browser endpoints" })
+    ).toBeDisabled();
   });
 
   it("self-registers a facility locally and signs in without a FHIR write", async () => {

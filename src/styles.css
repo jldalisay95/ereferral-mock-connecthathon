@@ -149,6 +149,16 @@ th { font-size: 0.75rem; text-transform: uppercase; color: var(--muted); }
 .registration-shell { min-height: 100vh; padding: 2rem 1rem; background: #edf5f2; }
 .registration-card { width: min(980px, 100%); margin: 0 auto; background: white; border: 1px solid var(--border); border-radius: 0.8rem; padding: clamp(1.25rem, 4vw, 2.25rem); box-shadow: 0 20px 60px rgba(24,52,47,.12); }
 .registration-card h1 { margin-top: 0.25rem; }
+.participant-setup-shell { padding-top: 1.25rem; }
+.participant-setup-page { width: min(1120px, 100%); margin: 0 auto; }
+.participant-setup-page .hero h1 { margin: 0.25rem 0; font-size: clamp(1.8rem, 4vw, 2.7rem); }
+.endpoint-setup-list { display: grid; gap: 1rem; margin: 1rem 0; }
+.endpoint-setup-field { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr); gap: 1rem; padding: 1rem; border: 1px solid var(--border); border-radius: 0.7rem; background: #f7faf9; }
+.endpoint-source { margin: 0; display: grid; gap: 0.5rem; }
+.endpoint-source div { display: grid; grid-template-columns: 145px minmax(0, 1fr); gap: 0.5rem; }
+.endpoint-source dt { color: var(--muted); font-size: 0.78rem; font-weight: 750; }
+.endpoint-source dd { margin: 0; font-size: 0.82rem; overflow-wrap: anywhere; }
+.guide-steps { display: grid; gap: 0.65rem; padding-left: 1.4rem; }
 footer { padding: 2rem 0; color: var(--muted); text-align: center; font-size: 0.85rem; }
 
 .workflow-steps {
@@ -196,7 +206,7 @@ footer { padding: 2rem 0; color: var(--muted); text-align: center; font-size: 0.
 @media (max-width: 800px) {
   .hero { grid-template-columns: 1fr; }
   .quick-actions { grid-template-columns: 1fr; }
-  .form-grid, .form-grid.three, .clinical-columns, .detail-grid, .workflow-actions, .coding-grid, .print-grid { grid-template-columns: 1fr; }
+  .form-grid, .form-grid.three, .clinical-columns, .detail-grid, .workflow-actions, .coding-grid, .print-grid, .endpoint-setup-field { grid-template-columns: 1fr; }
   .section-heading, .topbar, .result-card, .account-panel { align-items: stretch; flex-direction: column; text-align: left; }
   .synthetic-badge { align-self: flex-start; }
   .search-row > * { width: 100%; }

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   CONNECTATHON_CONFIG,
+  ENDPOINT_ENV_KEYS,
   PRESET_CAPABILITIES,
   assertExternalWritesAllowed,
+  endpointValueSource,
   resolveValueSetEndpoint
 } from "./connectathon.config";
 
@@ -59,5 +61,18 @@ describe("Connectathon presets", () => {
 
     expect(pwdDisability?.canonical).toContain("/ValueSet/");
     expect(pwdDisability?.canonical).not.toContain("/StructureDefinition/");
+  });
+
+  it("identifies browser endpoint overrides and their environment keys", () => {
+    expect(ENDPOINT_ENV_KEYS.pherefBaseUrl).toBe("VITE_PHEREF_BASE_URL");
+    expect(
+      endpointValueSource("pherefBaseUrl", "https://participant.example/fhir")
+    ).toBe("browser");
+    expect(
+      endpointValueSource(
+        "pherefBaseUrl",
+        CONNECTATHON_CONFIG.endpoints.pherefBaseUrl
+      )
+    ).toMatch(/environment|fork-default/);
   });
 });

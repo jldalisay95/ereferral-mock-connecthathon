@@ -39,6 +39,13 @@ export function RegisterFacility() {
           }}
         />
         <p className="login-note">
+          {connectathonConfig.preset === "participant" ? (
+            <>
+              Need to change or test the FHIR servers?{" "}
+              <Link to="/participant-setup">Open Participant Setup</Link>.
+              {" "}
+            </>
+          ) : null}
           Already have an account? <Link to="/login">Return to login</Link>.
         </p>
       </section>

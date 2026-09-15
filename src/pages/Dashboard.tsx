@@ -71,6 +71,11 @@ export function Dashboard() {
           </p>
         </div>
         <div className="quick-actions">
+          {connectathonConfig.preset === "participant" ? (
+            <Link className="button" to="/participant-setup">
+              Configure starter servers
+            </Link>
+          ) : null}
           {facilityUser ? (
             <Link className="button" to="/referrals/new">
               {activeDraftRecord ? "Continue referral" : "Generate referral"}

@@ -3,6 +3,8 @@ import type { EndpointConfig } from "../types";
 export type ConnectathonPresetName = "participant" | "ready";
 
 export type ValueSetEndpointKey = Exclude<keyof EndpointConfig, "demoMode">;
+export type EndpointConfigKey = ValueSetEndpointKey;
+export type EndpointValueSource = "browser" | "environment" | "fork-default";
 
 export interface ConnectathonCapabilities {
   remoteReads: boolean;
@@ -154,6 +156,30 @@ const EDITABLE_CONFORMANCE = {
   }
 } as const;
 
+export const FORK_DEFAULT_ENDPOINTS = EDITABLE_CONFORMANCE.endpoints;
+
+export const ENDPOINT_ENV_KEYS: Record<EndpointConfigKey, string> = {
+  pherefBaseUrl: "VITE_PHEREF_BASE_URL",
+  phCoreBaseUrl: "VITE_PHCORE_BASE_URL",
+  terminologyBaseUrl: "VITE_TX_BASE_URL"
+};
+
+const ENV_ENDPOINT_OVERRIDES: Partial<Record<EndpointConfigKey, string>> = {
+  pherefBaseUrl: import.meta.env.VITE_PHEREF_BASE_URL,
+  phCoreBaseUrl: import.meta.env.VITE_PHCORE_BASE_URL,
+  terminologyBaseUrl: import.meta.env.VITE_TX_BASE_URL
+};
+
+export function endpointValueSource(
+  key: EndpointConfigKey,
+  effectiveValue: string
+): EndpointValueSource {
+  const environmentValue = ENV_ENDPOINT_OVERRIDES[key];
+  const buildValue = environmentValue ?? FORK_DEFAULT_ENDPOINTS[key];
+  if (effectiveValue !== buildValue) return "browser";
+  return environmentValue !== undefined ? "environment" : "fork-default";
+}
+
 // EDIT FOR YOUR FORK — project/IG ValueSet canonicals and expansion endpoints.
 // Every coded option is loaded live; no local terminology fallback is used.
 const PROJECT_VALUE_SETS: readonly ConformanceValueSet[] = [
@@ -254,9 +280,13 @@ export const CONNECTATHON_CONFIG: ConnectathonConfig = {
   ...EDITABLE_CONFORMANCE,
   preset: CONNECTATHON_PRESET,
   endpoints: {
-    pherefBaseUrl: import.meta.env.VITE_PHEREF_BASE_URL ?? EDITABLE_CONFORMANCE.endpoints.pherefBaseUrl,
-    phCoreBaseUrl: import.meta.env.VITE_PHCORE_BASE_URL ?? EDITABLE_CONFORMANCE.endpoints.phCoreBaseUrl,
-    terminologyBaseUrl: import.meta.env.VITE_TX_BASE_URL ?? EDITABLE_CONFORMANCE.endpoints.terminologyBaseUrl,
+    pherefBaseUrl:
+      ENV_ENDPOINT_OVERRIDES.pherefBaseUrl ?? FORK_DEFAULT_ENDPOINTS.pherefBaseUrl,
+    phCoreBaseUrl:
+      ENV_ENDPOINT_OVERRIDES.phCoreBaseUrl ?? FORK_DEFAULT_ENDPOINTS.phCoreBaseUrl,
+    terminologyBaseUrl:
+      ENV_ENDPOINT_OVERRIDES.terminologyBaseUrl ??
+      FORK_DEFAULT_ENDPOINTS.terminologyBaseUrl,
     demoMode: CONNECTATHON_PRESET !== "ready"
   },
   capabilities: PRESET_CAPABILITIES[CONNECTATHON_PRESET],

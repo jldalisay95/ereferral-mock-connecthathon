@@ -12,6 +12,8 @@ export type {
   ConnectathonConfig,
   ConnectathonPresetName,
   ConformanceValueSet,
+  EndpointConfigKey,
+  EndpointValueSource,
   ValueSetEndpointKey
 } from "./connectathon.config";
 
