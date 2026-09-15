@@ -21,6 +21,12 @@ const psgcExpansions: Record<string, Array<{ code: string; display: string }>> =
   [PSGC_VALUE_SETS.cities]: [{ code: "0600407000", display: "Kalibo" }],
   [PSGC_VALUE_SETS.barangays]: [
     { code: "0600407013", display: "Poblacion" }
+  ],
+  [PSGC_VALUE_SETS.all]: [
+    { code: "0600000000", display: "Region VI (Western Visayas)" },
+    { code: "0600400000", display: "Aklan" },
+    { code: "0600407000", display: "Kalibo" },
+    { code: "0600407013", display: "Poblacion" }
   ]
 };
 
@@ -130,6 +136,12 @@ describe("application workflow", () => {
       screen.getByRole("heading", { name: "Connectathon Guide" })
     ).toBeInTheDocument();
     expect(screen.getByText("Connectathon ready")).toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "Terminology Check" }));
+    expect(
+      screen.getByRole("heading", { name: "Philippine Standard Geographic Code" })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "PSGC Regions" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "PSGC Barangays" })).toBeInTheDocument();
   });
 
   it("self-registers a facility locally and signs in without a FHIR write", async () => {

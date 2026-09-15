@@ -13,6 +13,7 @@ describe("terminology client", () => {
         json: async () => ({
           resourceType: "ValueSet",
           expansion: {
+            total: 125,
             contains: [
               {
                 system: "https://example.test/CodeSystem/group",
@@ -44,6 +45,7 @@ describe("terminology client", () => {
         display: "  Server display  "
       }
     ]);
+    expect(result.total).toBe(125);
     expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining("/ValueSet/$expand?url="),
       expect.objectContaining({ headers: { Accept: "application/fhir+json" } })

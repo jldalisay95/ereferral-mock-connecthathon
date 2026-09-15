@@ -4,6 +4,7 @@ import { CONNECTATHON_CONFIG } from "../config/connectathon.config";
 export interface ExpansionResult {
   canonical: string;
   codes: CodingInput[];
+  total?: number;
   warning?: string;
 }
 
@@ -65,14 +66,18 @@ export async function expandValueSet(
       }`
     );
   }
-  const expansion = body?.expansion as { contains?: ExpansionContains[] } | undefined;
+  const expansion = body?.expansion as {
+    contains?: ExpansionContains[];
+    total?: unknown;
+  } | undefined;
   const codes = flattenExpansion(expansion?.contains ?? []);
   if (!codes.length) {
     throw new Error(`Terminology expansion returned no codes for ${canonical}.`);
   }
   const result: ExpansionResult = {
     canonical,
-    codes
+    codes,
+    total: typeof expansion?.total === "number" ? expansion.total : undefined
   };
   if (useCache) sessionStorage.setItem(cacheKey, JSON.stringify(result));
   return result;
