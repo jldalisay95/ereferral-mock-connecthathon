@@ -16,7 +16,7 @@ const filters: Array<[string, ReferralStatus[]]> = [
 export function Inbox() {
   const {
     currentAccount,
-    endpoints,
+    connectathonConfig,
     incomingReferrals,
     scopedNotifications,
     markNotificationRead,
@@ -36,7 +36,8 @@ export function Inbox() {
       .map((notification) => notification.referralId)
   );
   const canRefreshLive =
-    currentAccount?.role === "facility_user" && !endpoints.demoMode;
+    currentAccount?.role === "facility_user" &&
+    connectathonConfig.capabilities.remoteReads;
 
   async function refreshLive() {
     setLoadingLive(true);
@@ -89,8 +90,7 @@ export function Inbox() {
         {message ? <p>{message}</p> : null}
         {!canRefreshLive ? (
           <p className="notice">
-            Live incoming refresh is available for facility accounts when demo
-            mode is off.
+            Remote reads are unavailable for this preset or account.
           </p>
         ) : null}
         <ReferralTable

@@ -1,9 +1,12 @@
 import { createContext } from "react";
+import type { ConnectathonConfig } from "../config/connectathon.config";
 import type {
   AppSettings,
   FacilityAccount,
   FacilityDefinition,
+  FacilityPublishResult,
   FacilityRegistrationInput,
+  FacilityRegistrationResult,
   Notification,
   PatientInput,
   PatientRecord,
@@ -15,8 +18,10 @@ import type {
 } from "../types";
 
 export interface AppContextValue {
+  connectathonConfig: ConnectathonConfig;
   accounts: FacilityAccount[];
   facilities: FacilityDefinition[];
+  registeredFacilities: FacilityDefinition[];
   currentAccount: FacilityAccount | null;
   settings: AppSettings;
   endpoints: AppSettings;
@@ -33,7 +38,9 @@ export interface AppContextValue {
   logout: () => void;
   setEndpoints: (value: AppSettings) => void;
   resetEndpoints: () => void;
-  registerFacility: (value: FacilityRegistrationInput) => Promise<FacilityDefinition>;
+  registerFacility: (value: FacilityRegistrationInput) => FacilityRegistrationResult;
+  selfRegisterFacility: (value: FacilityRegistrationInput) => FacilityRegistrationResult;
+  publishFacility: (facilityId: string) => Promise<FacilityPublishResult>;
   savePatient: (
     patient: PatientInput,
     registryType: RegistryType,
@@ -51,7 +58,7 @@ export interface AppContextValue {
     summary: ValidationSummary,
     outcome?: ReferralRecord["validationOutcome"]
   ) => void;
-  submitCurrentReferral: (allowBlocking: boolean) => Promise<ReferralRecord>;
+  submitCurrentReferral: () => Promise<ReferralRecord>;
   transitionReferral: (
     referralId: string,
     transition: TaskTransition,

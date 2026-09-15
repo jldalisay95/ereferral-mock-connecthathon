@@ -12,6 +12,7 @@ export function ReferralPreview() {
   const {
     draft,
     activeDraftRecord,
+    connectathonConfig,
     endpoints,
     saveValidation,
     submitCurrentReferral
@@ -26,7 +27,6 @@ export function ReferralPreview() {
   );
   const [validating, setValidating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [submitAnyway, setSubmitAnyway] = useState(false);
   const [message, setMessage] = useState("");
 
   if (!draft || !bundle || !activeDraftRecord) {
@@ -42,13 +42,17 @@ export function ReferralPreview() {
   const currentBundle = bundle;
 
   const requiredMissing = getReferralSubmissionMissing(draft);
-  const liveMode = !endpoints.demoMode;
+  const writeEnabled =
+    connectathonConfig.capabilities.externalWrites ||
+    connectathonConfig.capabilities.localSimulation;
+  const liveMode =
+    connectathonConfig.capabilities.externalWrites && !endpoints.demoMode;
   const canSubmit =
+    writeEnabled &&
     !submitting &&
     !requiredMissing.length &&
-    (liveMode
-      ? validation.validated && !validation.blocking
-      : !validation.blocking || submitAnyway);
+    validation.validated &&
+    !validation.blocking;
 
   async function runValidation() {
     if (requiredMissing.length) {
@@ -78,30 +82,18 @@ export function ReferralPreview() {
 
   async function submit() {
     if (requiredMissing.length) return;
-    if (!validation.validated && !submitAnyway) {
-      setMessage(
-        liveMode
-          ? "Run validation before submitting to the configured FHIR server."
-          : "Run validation or explicitly choose Submit anyway for demo."
-      );
+    if (!writeEnabled) {
+      setMessage("Submission is locked by the participant preset. Open the Connectathon Guide for readiness steps.");
       return;
     }
-    if (validation.blocking && !submitAnyway) {
-      setMessage(
-        liveMode
-          ? "Resolve blocking validation issues before submitting to the configured FHIR server."
-          : "Blocking validation issues require an explicit demo override."
-      );
-      return;
-    }
-    if (liveMode && submitAnyway) {
-      setMessage("Live server submission requires validation without blocking issues.");
+    if (!validation.validated || validation.blocking) {
+      setMessage("A successful, non-blocking $validate result is required before submission.");
       return;
     }
     setSubmitting(true);
     setMessage("");
     try {
-      const record = await submitCurrentReferral(submitAnyway);
+      const record = await submitCurrentReferral();
       navigate(`/referrals/${record.id}`, { replace: true, state: { referral: record } });
     } catch (error) {
       setMessage(
@@ -137,10 +129,14 @@ export function ReferralPreview() {
       {message ? <div className="notice">{message}</div> : null}
       <ValidationPanel summary={validation} />
       <section className="card">
-        <div className={liveMode ? "notice warning" : "notice"}>
-          {liveMode
-            ? `Live mode is enabled. Submission will POST this transaction Bundle to ${endpoints.pherefBaseUrl}.`
-            : "Demo mode is enabled. Submission will stay in local mock persistence."}
+        <div className={writeEnabled ? (liveMode ? "notice warning" : "notice") : "notice warning"}>
+          {!writeEnabled ? (
+            <>Participant starter is validation-only. External writes are blocked. <Link to="/connectathon-guide">Open the readiness guide</Link>.</>
+          ) : liveMode ? (
+            `Ready preset is active. Submission will POST this transaction Bundle to ${endpoints.pherefBaseUrl}.`
+          ) : (
+            "Ready preset is active with local simulation selected."
+          )}
         </div>
         <div className="button-row">
           <Link className="button secondary" to="/referrals/new">Back to referral</Link>
@@ -158,21 +154,13 @@ export function ReferralPreview() {
           >
             {submitting
               ? "Submitting..."
-              : endpoints.demoMode
+              : !writeEnabled
+                ? "Submission locked in participant preset"
+                : endpoints.demoMode
                 ? "Submit to local demo"
                 : "Submit to FHIR server"}
           </button>
         </div>
-        {endpoints.demoMode && (validation.blocking || !validation.validated) ? (
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={submitAnyway}
-              onChange={(event) => setSubmitAnyway(event.target.checked)}
-            />
-            Submit anyway for demo; validation is missing or contains blocking issues.
-          </label>
-        ) : null}
       </section>
       <JsonPanel title="FHIR transaction Bundle JSON" value={bundle} />
     </div>

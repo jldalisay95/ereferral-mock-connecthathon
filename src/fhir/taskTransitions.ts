@@ -4,9 +4,9 @@ import type {
   ReceivingResponse,
   TaskTransition
 } from "../types";
+import { CONNECTATHON_CONFIG } from "../config/connectathon.config";
 
-const WORKFLOW_SYSTEM =
-  "https://fhir.doh.gov.ph/pheref/CodeSystem/ereferral-workflow";
+const WORKFLOW_SYSTEM = CONNECTATHON_CONFIG.codeSystems.workflow;
 
 const receivingResponses: ReceivingResponse[] = [
   "received",

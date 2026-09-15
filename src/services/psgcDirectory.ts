@@ -1,4 +1,5 @@
 import {
+  CONNECTATHON_CONFIG,
   PSGC_SYSTEM,
   PSGC_VALUE_SET_IDS,
   PSGC_VALUE_SETS,
@@ -58,9 +59,10 @@ function canonicalExpandUrl(baseUrl: string, canonical: string, count: number) {
 }
 
 async function fetchExpansion(url: string, signal?: AbortSignal) {
+  const timeout = AbortSignal.timeout(10_000);
   const response = await fetch(url, {
     headers: { Accept: "application/fhir+json" },
-    signal: signal ?? AbortSignal.timeout(90_000)
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout
   });
   const body = (await response.json().catch(() => null)) as
     | ExpansionResponse
@@ -96,7 +98,14 @@ async function loadExpansion(
   count: number,
   signal?: AbortSignal
 ) {
-  const key = `${baseUrl}|${valueSetId}|${canonical}`;
+  const key = [
+    CONNECTATHON_CONFIG.preset,
+    CONNECTATHON_CONFIG.ig.version,
+    PSGC_VERSION,
+    baseUrl,
+    valueSetId,
+    canonical
+  ].join("|");
   if (!expansionCache.has(key)) {
     const snapshotFallback = () =>
       loadBundledPsgcSnapshot().then((snapshot) => {

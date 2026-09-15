@@ -43,6 +43,7 @@ export function ReferralDetail() {
   const location = useLocation();
   const {
     currentAccount,
+    connectathonConfig,
     facilities,
     getReferral,
     markReferralNotificationsRead,
@@ -76,10 +77,14 @@ export function ReferralDetail() {
   const assignedToCurrentFacility =
     referral.receivingOrganizationId === currentAccount?.organizationId ||
     referral.forwardedToOrganizationId === currentAccount?.organizationId;
-  const canUpdate =
+  const assignedUserCanUpdate =
     currentAccount?.role === "facility_user" &&
     assignedToCurrentFacility &&
     !["rejected", "completed", "cancelled", "failed"].includes(referral.status);
+  const canUpdate =
+    assignedUserCanUpdate &&
+    (connectathonConfig.capabilities.externalWrites ||
+      connectathonConfig.capabilities.localSimulation);
 
   async function updateStatus() {
     if (!note.trim()) {
@@ -288,6 +293,10 @@ export function ReferralDetail() {
             >
               {loading ? "Updating..." : "Update referral status"}
             </button>
+          </div>
+        ) : assignedUserCanUpdate ? (
+          <div className="notice warning">
+            Task updates are visible but locked by the participant preset. Complete the <Link to="/connectathon-guide">readiness guide</Link>, then run the ready preset explicitly.
           </div>
         ) : null}
         {referral.status === "referred-onward" ? (

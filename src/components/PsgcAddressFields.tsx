@@ -155,6 +155,7 @@ export function PsgcAddressFields({
       <div className="form-grid three">
         <FormField label="Region">
           <SelectInput
+            required
             value={address.regionCode}
             disabled={status !== "ready"}
             onChange={(event) => selectRegion(event.target.value)}
@@ -171,6 +172,7 @@ export function PsgcAddressFields({
         </FormField>
         <FormField label="Province">
           <SelectInput
+            required={provinceRequired}
             value={address.provinceCode}
             disabled={
               status !== "ready" ||
@@ -193,6 +195,7 @@ export function PsgcAddressFields({
         </FormField>
         <FormField label="City / municipality">
           <SelectInput
+            required
             value={address.cityCode}
             disabled={
               status !== "ready" ||
@@ -211,6 +214,7 @@ export function PsgcAddressFields({
         </FormField>
         <FormField label="Barangay">
           <SelectInput
+            required
             value={address.barangayCode}
             disabled={
               !address.cityCode ||

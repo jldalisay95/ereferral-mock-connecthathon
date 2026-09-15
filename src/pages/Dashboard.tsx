@@ -10,10 +10,12 @@ type ConnectionState = Record<string, "checking" | "online" | "offline">;
 export function Dashboard() {
   const {
     currentAccount,
+    connectathonConfig,
     endpoints,
     scopedReferrals,
     sentReferrals,
     incomingReferrals,
+    registeredFacilities,
     scopedNotifications,
     unreadNotificationCount,
     markNotificationRead,
@@ -47,6 +49,9 @@ export function Dashboard() {
   const count = (items: typeof scopedReferrals, ...statuses: ReferralStatus[]) =>
     items.filter((referral) => statuses.includes(referral.status)).length;
   const facilityUser = currentAccount.role === "facility_user";
+  const registeredFacility = registeredFacilities.find(
+    (facility) => facility.id === currentAccount.organizationId
+  );
 
   return (
     <div className="page-stack">
@@ -58,9 +63,11 @@ export function Dashboard() {
           <h2>{currentAccount.organizationName}</h2>
           <p>
             A facility acts as sender or receiver according to each referral direction.
-            {endpoints.demoMode
-              ? " Demo mode keeps referral writes in this browser."
-              : " Live mode sends referral writes to the configured PHeReF server."}
+            {connectathonConfig.capabilities.externalWrites
+              ? endpoints.demoMode
+                ? " The ready preset is active, with local simulation selected in Admin Settings."
+                : " The ready preset sends validated referral writes to the configured PHeRef server."
+              : " The participant preset permits preview and $validate but blocks all external writes."}
           </p>
         </div>
         <div className="quick-actions">
@@ -73,8 +80,19 @@ export function Dashboard() {
             Open incoming referrals
           </Link>
           <Link className="button secondary" to="/referrals">Open tracker</Link>
+          <Link className="button secondary" to="/connectathon-guide">Open guide</Link>
         </div>
       </section>
+
+      {registeredFacility ? (
+        <section className="notice">
+          This facility account is stored locally. Organization status:{" "}
+          <strong>
+            {registeredFacility.organization.fhirReference ?? "not published"}
+          </strong>. Manage explicit validation and publishing in the{" "}
+          <Link to="/connectathon-guide">Connectathon Guide</Link>.
+        </section>
+      ) : null}
 
       <section className="metric-grid">
         <Metric label="Sent referrals" value={sentReferrals.length} />

@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAppContext } from "../context/useAppContext";
+import { DEMO_ACCOUNTS } from "../data/facilities";
 
 export function Login() {
-  const { accounts, currentAccount, login } = useAppContext();
+  const { currentAccount, login } = useAppContext();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -52,9 +53,14 @@ export function Login() {
           </label>
           <button type="submit" disabled={!username || !password}>Login</button>
         </form>
+        <div className="button-row login-register-action">
+          <Link className="button secondary" to="/register">
+            Create a facility account
+          </Link>
+        </div>
         <div className="demo-accounts">
           <span>Demo accounts</span>
-          {accounts.map((account) => (
+          {DEMO_ACCOUNTS.map((account) => (
             <button
               type="button"
               className="secondary compact"

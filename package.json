@@ -2,10 +2,13 @@
   "name": "pheref-ereferral-connectathon",
   "private": true,
   "version": "0.1.0",
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "vite --mode participant",
+    "dev:ready": "vite --mode ready",
+    "build": "tsc -b && vite build --mode participant",
+    "build:ready": "tsc -b && vite build --mode ready",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest"

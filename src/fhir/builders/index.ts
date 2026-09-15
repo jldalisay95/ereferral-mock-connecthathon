@@ -1,6 +1,9 @@
 import {
+  CONNECTATHON_CONFIG,
+  EXTENSIONS,
   IDENTIFIER_SYSTEMS,
-  PROFILES
+  PROFILES,
+  PSGC_SYSTEM
 } from "../../config/fhir";
 import type { CodingInput, FhirResource, ReferralDraft } from "../../types";
 
@@ -70,11 +73,31 @@ function address(input: ReferralDraft["patient"]["address"]) {
     .filter(Boolean)
     .join(", ");
 
+  const geographicExtensions = CONNECTATHON_CONFIG.features.includePsgcExtensions
+    ? [
+        [EXTENSIONS.region, input.regionCode, input.region],
+        [EXTENSIONS.province, input.provinceCode, input.province],
+        [EXTENSIONS.cityMunicipality, input.cityCode, input.city],
+        [EXTENSIONS.barangay, input.barangayCode, input.barangay]
+      ].flatMap(([url, code, display]) =>
+        code
+          ? [
+              {
+                url,
+                valueCoding: {
+                  system: PSGC_SYSTEM,
+                  version: input.psgcVersion || CONNECTATHON_CONFIG.psgc.version,
+                  code,
+                  display
+                }
+              }
+            ]
+          : []
+      )
+    : [];
+
   return {
-    // The current validation environment resolves the optional PH Core PSGC
-    // bindings against a partial 2Q-2026 CodeSystem even when a Coding is
-    // explicitly versioned as 1Q-2026. Keep the complete address in standard
-    // FHIR fields until that server-side terminology conflict is corrected.
+    ...(geographicExtensions.length ? { extension: geographicExtensions } : {}),
     use: "home",
     ...(text ? { text } : {}),
     ...(input.line ? { line: [input.line] } : {}),

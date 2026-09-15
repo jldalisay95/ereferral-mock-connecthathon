@@ -2,12 +2,13 @@ import { NavLink, Outlet } from "react-router-dom";
 import { useAppContext } from "../context/useAppContext";
 
 export function Layout() {
-  const { currentAccount, unreadNotificationCount, logout } = useAppContext();
+  const { connectathonConfig, currentAccount, unreadNotificationCount, logout } = useAppContext();
   if (!currentAccount) return null;
 
   const facilityUser = currentAccount.role === "facility_user";
   const navigation = [
     ["/dashboard", "Dashboard", true],
+    ["/connectathon-guide", "Connectathon Guide", true],
     ["/patients", "Patient Registry", facilityUser],
     ["/referrals/new", "Generate Referral", facilityUser],
     ["/referrals/sent", "Sent Referrals", true],
@@ -30,6 +31,11 @@ export function Layout() {
           <h1>Local Referral EMR</h1>
         </div>
         <div className="account-panel">
+          <span className={`preset-badge preset-${connectathonConfig.preset}`}>
+            {connectathonConfig.preset === "participant"
+              ? "Participant starter"
+              : "Connectathon ready"}
+          </span>
           <span className="synthetic-badge">Synthetic data only</span>
           <div>
             <strong>{currentAccount.displayName}</strong>
@@ -51,7 +57,7 @@ export function Layout() {
       </nav>
       <main><Outlet /></main>
       <footer>
-        Draft PHeReF v0.1 workflow demonstration. Never use real patient data.
+        {connectathonConfig.ig.name} ({connectathonConfig.ig.version}) · {connectathonConfig.preset} preset. Never use real patient data.
       </footer>
     </div>
   );

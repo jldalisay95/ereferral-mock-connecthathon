@@ -1,4 +1,5 @@
 import { parseOperationOutcome } from "../fhir/operationOutcome";
+import { assertExternalWritesAllowed } from "../config/connectathon.config";
 import type {
   EndpointConfig,
   FhirResource,
@@ -105,6 +106,7 @@ export async function submitTransactionBundle(
   baseUrl: string,
   bundle: FhirResource
 ): Promise<FhirResource> {
+  assertExternalWritesAllowed();
   return (
     await request(baseUrl.replace(/\/$/, ""), {
       method: "POST",
@@ -145,6 +147,7 @@ export async function updateResource(
   id: string,
   resource: FhirResource
 ): Promise<FhirResource> {
+  assertExternalWritesAllowed();
   return (
     await request(`${baseUrl.replace(/\/$/, "")}/${resourceType}/${id}`, {
       method: "PUT",
@@ -167,6 +170,7 @@ export async function patchResource(
   id: string,
   patch: unknown
 ): Promise<FhirResource> {
+  assertExternalWritesAllowed();
   return (
     await request(`${baseUrl.replace(/\/$/, "")}/${resourceType}/${id}`, {
       method: "PATCH",

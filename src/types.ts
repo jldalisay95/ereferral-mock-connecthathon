@@ -223,6 +223,20 @@ export interface FacilityRegistrationInput {
   practitionerLicense: string;
   username: string;
   password: string;
+  passwordConfirmation: string;
+}
+
+export interface FacilityRegistrationResult {
+  facility: FacilityDefinition;
+  account: FacilityAccount;
+}
+
+export interface FacilityPublishResult {
+  facility: FacilityDefinition;
+  published: boolean;
+  validationSummary: ValidationSummary;
+  validationOutcome?: FhirResource;
+  response?: FhirResource;
 }
 
 export interface AppSession {

@@ -1,7 +1,10 @@
 import { useMemo, useState, type PropsWithChildren } from "react";
 import {
+  assertExternalWritesAllowed,
   CLINICAL_REASON_OPTIONS,
+  CONNECTATHON_CONFIG,
   DEFAULT_ENDPOINTS,
+  IDENTIFIER_SYSTEMS,
   REFERRAL_CATEGORY_OPTIONS,
   REQUESTED_SERVICE_OPTIONS
 } from "../config/fhir";
@@ -21,8 +24,10 @@ import {
   parseTransactionResponse,
   readResource,
   submitTransactionBundle,
-  updateResource
+  updateResource,
+  validateResourceDetailed
 } from "../services/fhirClient";
+import { createFacilityRegistration } from "../services/facilityRegistration";
 import { findResource, resolveTransactionBundle } from "../services/demoFhir";
 import { createNotification, localRepository } from "../services/localRepository";
 import { organizationDestinationId } from "../services/organizationDirectory";
@@ -32,7 +37,10 @@ import {
   parseReference,
   searchIncomingReferralsForFacility
 } from "../services/referralRetrieval";
-import { assertReferralSubmissionReady } from "../services/referralValidation";
+import {
+  assertNonBlockingValidation,
+  assertReferralSubmissionReady
+} from "../services/referralValidation";
 import {
   createDraftRecord,
   createTimelineEvent,
@@ -47,7 +55,9 @@ import type {
   CareStatus,
   FacilityAccount,
   FacilityDefinition,
+  FacilityPublishResult,
   FacilityRegistrationInput,
+  FacilityRegistrationResult,
   FhirResource,
   PatientInput,
   PatientRecord,
@@ -109,10 +119,10 @@ function patientFromResource(resource: FhirResource | undefined): PatientInput {
       ? resource.gender
       : "unknown";
   patient.birthDate = typeof resource.birthDate === "string" ? resource.birthDate : "";
-  patient.philSysId = firstIdentifier(resource, "http://philsys.gov.ph/fhir/Identifier/philsys-id");
+  patient.philSysId = firstIdentifier(resource, IDENTIFIER_SYSTEMS.philSys);
   patient.philHealthId = firstIdentifier(
     resource,
-    "http://philhealth.gov.ph/fhir/Identifier/philhealth-id"
+    IDENTIFIER_SYSTEMS.philHealth
   );
   patient.phone =
     (
@@ -183,6 +193,15 @@ function careStatusFromTransition(transition: TaskTransition): CareStatus | unde
 
 export function AppProvider({ children }: PropsWithChildren) {
   const [state, setState] = useState<PersistedAppState>(() => localRepository.load());
+  const effectiveSettings = useMemo<AppSettings>(
+    () => ({
+      ...state.settings,
+      demoMode: CONNECTATHON_CONFIG.capabilities.externalWrites
+        ? state.settings.demoMode
+        : true
+    }),
+    [state.settings]
+  );
   const facilities = useMemo<FacilityDefinition[]>(
     () => [...FACILITIES, ...state.registeredFacilities],
     [state.registeredFacilities]
@@ -234,7 +253,15 @@ export function AppProvider({ children }: PropsWithChildren) {
   }
 
   function setEndpoints(settings: AppSettings) {
-    commit((current) => ({ ...current, settings }));
+    commit((current) => ({
+      ...current,
+      settings: {
+        ...settings,
+        demoMode: CONNECTATHON_CONFIG.capabilities.externalWrites
+          ? settings.demoMode
+          : true
+      }
+    }));
   }
 
   function resetEndpoints() {
@@ -244,89 +271,137 @@ export function AppProvider({ children }: PropsWithChildren) {
     }));
   }
 
-  async function registerFacility(
+  function saveFacilityRegistration(
+    value: FacilityRegistrationInput,
+    signIn: boolean
+  ): FacilityRegistrationResult {
+    const result = createFacilityRegistration(value, accounts, facilities);
+    commit((current) => ({
+      ...current,
+      session: signIn
+        ? {
+            userId: result.account.id,
+            username: result.account.username,
+            displayName: result.account.displayName,
+            role: result.account.role,
+            facilityId: result.facility.id,
+            facilityName: result.facility.name,
+            loggedInAt: new Date().toISOString()
+          }
+        : current.session,
+      registeredFacilities: [result.facility, ...current.registeredFacilities],
+      registeredAccounts: [result.account, ...current.registeredAccounts]
+    }));
+    return result;
+  }
+
+  function registerFacility(
     value: FacilityRegistrationInput
-  ): Promise<FacilityDefinition> {
+  ): FacilityRegistrationResult {
     if (!currentAccount || currentAccount.role !== "admin") {
-      throw new Error("Only an administrator can register facilities.");
+      throw new Error("Only an administrator can register facilities here.");
     }
-    const username = value.username.trim().toLowerCase();
-    const organizationName = value.organizationName.trim();
-    const nhfrCode = value.nhfrCode.trim();
-    if (!organizationName || !nhfrCode || !username || !value.password) {
-      throw new Error("Facility name, NHFR code, username, and password are required.");
+    return saveFacilityRegistration(value, false);
+  }
+
+  function selfRegisterFacility(
+    value: FacilityRegistrationInput
+  ): FacilityRegistrationResult {
+    if (currentAccount) {
+      throw new Error("Sign out before creating a self-registration account.");
     }
-    if (accounts.some((account) => account.username.toLowerCase() === username)) {
-      throw new Error("Username already exists.");
+    return saveFacilityRegistration(value, true);
+  }
+
+  function organizationReferenceFromResponse(response: FhirResource) {
+    const firstEntry = Array.isArray(response.entry)
+      ? (response.entry[0] as { response?: { location?: string } } | undefined)
+      : undefined;
+    const location = firstEntry?.response?.location;
+    const match = location?.match(/^(Organization\/[^/]+)/);
+    return match?.[1];
+  }
+
+  async function publishFacility(
+    facilityId: string
+  ): Promise<FacilityPublishResult> {
+    assertExternalWritesAllowed();
+    if (state.settings.demoMode) {
+      throw new Error("Disable Demo mode before publishing an Organization.");
     }
-    if (
-      facilities.some(
-        (facility) =>
-          facility.organization.nhfrCode &&
-          facility.organization.nhfrCode === nhfrCode
-      )
-    ) {
-      throw new Error("A facility with this NHFR code already exists.");
+    const facility = state.registeredFacilities.find(
+      (item) => item.id === facilityId
+    );
+    if (!facility) throw new Error("Only user-created facilities can be published.");
+    const ownsFacility = currentAccount?.organizationId === facility.id;
+    if (!currentAccount || (!ownsFacility && currentAccount.role !== "admin")) {
+      throw new Error("You may publish only your own facility.");
     }
-    const id = `org-${crypto.randomUUID()}`;
-    const practitionerRoleId = `practitioner-role-${crypto.randomUUID()}`;
-    const organization = {
-      name: organizationName,
-      nhfrCode,
-      hcpnName: value.hcpnName.trim(),
-      phone: value.phone.trim(),
-      address: structuredClone(value.address),
-      source: "local" as const
-    };
-    const facility: FacilityDefinition = {
-      id,
-      name: organization.name,
-      practitionerRoleId,
-      organization,
-      practitioner: {
-        prefix: value.practitionerPrefix.trim() || undefined,
-        given: value.practitionerGiven.trim() || "Facility",
-        family: value.practitionerFamily.trim() || "Practitioner",
-        license: value.practitionerLicense.trim() || `SYN-PRC-${nhfrCode}`,
-        role: {
-          system: "http://snomed.info/sct",
-          code: "158965000",
-          display: "Doctor"
-        }
-      }
-    };
-    const account: FacilityAccount = {
-      id: `user-${crypto.randomUUID()}`,
-      username,
-      password: value.password,
-      displayName: `${facility.name} User`,
-      role: "facility_user",
-      organizationId: id,
-      organizationName: facility.name,
-      practitionerRoleId
-    };
-    if (!state.settings.demoMode) {
-      await submitTransactionBundle(state.settings.pherefBaseUrl, {
+
+    const organization = buildOrganization(facility.organization);
+    const validation = await validateResourceDetailed(
+      state.settings.pherefBaseUrl,
+      "Organization",
+      organization
+    );
+    const validationFailed =
+      !validation.summary.validated ||
+      validation.summary.blocking ||
+      (validation.summary.httpStatus ?? 200) >= 400;
+    if (validationFailed) {
+      return {
+        facility,
+        published: false,
+        validationSummary: validation.summary,
+        validationOutcome: validation.outcome
+      };
+    }
+
+    const response = await submitTransactionBundle(
+      state.settings.pherefBaseUrl,
+      {
         resourceType: "Bundle",
         type: "transaction",
         entry: [
           {
             fullUrl: `urn:uuid:${crypto.randomUUID()}`,
-            resource: buildOrganization(organization),
+            resource: organization,
             request: {
               method: "PUT",
-              url: `Organization?identifier=https://fhir.doh.gov.ph/phcore/Identifier/doh-nhfr-code|${nhfrCode}`
+              url: `Organization?identifier=${IDENTIFIER_SYSTEMS.nhfr}|${facility.organization.nhfrCode}`
             }
           }
         ]
-      });
+      }
+    );
+    const fhirReference = organizationReferenceFromResponse(response);
+    if (!fhirReference) {
+      throw new Error(
+        "The transaction succeeded but did not return an Organization location."
+      );
     }
+    const publishedFacility: FacilityDefinition = {
+      ...facility,
+      organization: {
+        ...facility.organization,
+        source: "fhir",
+        fhirReference,
+        fhirServerLabel: "PHeRef CDR"
+      }
+    };
     commit((current) => ({
       ...current,
-      registeredFacilities: [facility, ...current.registeredFacilities],
-      registeredAccounts: [account, ...current.registeredAccounts]
+      registeredFacilities: current.registeredFacilities.map((item) =>
+        item.id === facility.id ? publishedFacility : item
+      )
     }));
-    return facility;
+    return {
+      facility: publishedFacility,
+      published: true,
+      validationSummary: validation.summary,
+      validationOutcome: validation.outcome,
+      response
+    };
   }
 
   function savePatient(
@@ -532,18 +607,24 @@ export function AppProvider({ children }: PropsWithChildren) {
     }));
   }
 
-  async function submitCurrentReferral(
-    allowBlocking: boolean
-  ): Promise<ReferralRecord> {
+  async function submitCurrentReferral(): Promise<ReferralRecord> {
     if (!currentAccount || !activeDraftRecord) {
       throw new Error("No active referral draft.");
     }
     assertReferralSubmissionReady(activeDraftRecord.draft);
-    if (activeDraftRecord.validationSummary.blocking && !allowBlocking) {
-      throw new Error("Validation contains blocking issues.");
+    if (
+      !CONNECTATHON_CONFIG.capabilities.externalWrites &&
+      !CONNECTATHON_CONFIG.capabilities.localSimulation
+    ) {
+      throw new Error(
+        "Submission is locked by the participant preset. Complete validation, then run npm run dev:ready explicitly."
+      );
     }
+    assertNonBlockingValidation(activeDraftRecord.validationSummary);
     const bundle = activeDraftRecord.fhirBundle;
-    const remoteResponse = state.settings.demoMode
+    const liveWrite =
+      CONNECTATHON_CONFIG.capabilities.externalWrites && !state.settings.demoMode;
+    const remoteResponse = !liveWrite
       ? undefined
       : await submitTransactionBundle(state.settings.pherefBaseUrl, bundle);
     const resolved = resolveTransactionBundle(bundle, remoteResponse);
@@ -563,15 +644,15 @@ export function AppProvider({ children }: PropsWithChildren) {
       transactionResponseSummary: receipt,
       fhirResources: resolved.resources,
       resourceReferences: referencesFromResources(resolved.resources),
-      liveSubmission: !state.settings.demoMode,
+      liveSubmission: liveWrite,
       timeline: [
         ...activeDraftRecord.timeline,
         createTimelineEvent(
           activeDraftRecord.id,
           "submitted",
-          state.settings.demoMode
-            ? "Referral submitted to the local Connectathon demo store."
-            : "Referral transaction submitted to the PHeReF CDR.",
+          liveWrite
+            ? "Referral transaction submitted to the PHeReF CDR."
+            : "Referral submitted to the local Connectathon demo store.",
           currentAccount
         ),
         createTimelineEvent(
@@ -616,6 +697,14 @@ export function AppProvider({ children }: PropsWithChildren) {
     note: string,
     forwardingFacilityId?: string
   ): Promise<ReferralRecord> {
+    if (
+      !CONNECTATHON_CONFIG.capabilities.externalWrites &&
+      !CONNECTATHON_CONFIG.capabilities.localSimulation
+    ) {
+      throw new Error(
+        "Task updates are locked by the participant preset. Run the ready preset after completing the readiness checks."
+      );
+    }
     if (!currentAccount || currentAccount.role !== "facility_user") {
       throw new Error("A facility user is required to update referral status.");
     }
@@ -867,7 +956,7 @@ export function AppProvider({ children }: PropsWithChildren) {
           name: organizationName(referringOrganization, "Remote referring facility"),
           nhfrCode: firstIdentifier(
             referringOrganization,
-            "https://fhir.doh.gov.ph/phcore/Identifier/doh-nhfr-code"
+            IDENTIFIER_SYSTEMS.nhfr
           ),
           hcpnName: "",
           phone: "",
@@ -1078,11 +1167,13 @@ export function AppProvider({ children }: PropsWithChildren) {
   return (
     <AppContext.Provider
       value={{
+        connectathonConfig: CONNECTATHON_CONFIG,
         accounts,
         facilities,
+        registeredFacilities: state.registeredFacilities,
         currentAccount,
-        settings: state.settings,
-        endpoints: state.settings,
+        settings: effectiveSettings,
+        endpoints: effectiveSettings,
         patients: state.patients,
         scopedPatients,
         referrals: state.referrals,
@@ -1098,6 +1189,8 @@ export function AppProvider({ children }: PropsWithChildren) {
         setEndpoints,
         resetEndpoints,
         registerFacility,
+        selfRegisterFacility,
+        publishFacility,
         savePatient,
         linkWalkInPatient,
         draft: activeDraftRecord?.draft ?? null,

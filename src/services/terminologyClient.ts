@@ -1,4 +1,5 @@
 import type { CodingInput } from "../types";
+import { CONNECTATHON_CONFIG } from "../config/connectathon.config";
 
 interface ExpansionResult {
   canonical: string;
@@ -10,13 +11,26 @@ export function buildExpandUrl(baseUrl: string, canonical: string): string {
   return `${baseUrl.replace(/\/$/, "")}/ValueSet/$expand?url=${encodeURIComponent(canonical)}`;
 }
 
+export function terminologyCacheKey(baseUrl: string, canonical: string): string {
+  const { preset, ig, psgc } = CONNECTATHON_CONFIG;
+  return [
+    "pheref.tx",
+    preset,
+    ig.version,
+    psgc.version,
+    encodeURIComponent(baseUrl.replace(/\/$/, "")),
+    encodeURIComponent(canonical)
+  ].join(".");
+}
+
 export async function expandValueSet(
   baseUrl: string,
   canonical: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  useCache = true
 ): Promise<ExpansionResult> {
-  const cacheKey = `pheref.tx.${canonical}`;
-  const cached = sessionStorage.getItem(cacheKey);
+  const cacheKey = terminologyCacheKey(baseUrl, canonical);
+  const cached = useCache ? sessionStorage.getItem(cacheKey) : null;
   if (cached) return JSON.parse(cached) as ExpansionResult;
 
   const response = await fetch(buildExpandUrl(baseUrl, canonical), {
@@ -46,6 +60,6 @@ export async function expandValueSet(
         : []
     )
   };
-  sessionStorage.setItem(cacheKey, JSON.stringify(result));
+  if (useCache) sessionStorage.setItem(cacheKey, JSON.stringify(result));
   return result;
 }

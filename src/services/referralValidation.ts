@@ -1,4 +1,4 @@
-import type { ReferralDraft } from "../types";
+import type { ReferralDraft, ValidationSummary } from "../types";
 
 export function getReferralSubmissionMissing(draft: ReferralDraft): string[] {
   return [
@@ -26,5 +26,13 @@ export function assertReferralSubmissionReady(draft: ReferralDraft) {
   const missing = getReferralSubmissionMissing(draft);
   if (missing.length) {
     throw new Error(`Complete required fields: ${missing.join(", ")}.`);
+  }
+}
+
+export function assertNonBlockingValidation(summary: ValidationSummary): void {
+  if (!summary.validated || summary.blocking) {
+    throw new Error(
+      "A successful, non-blocking $validate result is required before submission."
+    );
   }
 }

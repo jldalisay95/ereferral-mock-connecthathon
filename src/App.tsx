@@ -3,6 +3,7 @@ import { Layout } from "./components/Layout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AppProvider } from "./context/AppContext";
 import { Dashboard } from "./pages/Dashboard";
+import { ConnectathonGuide } from "./pages/ConnectathonGuide";
 import { Inbox } from "./pages/Inbox";
 import { Login } from "./pages/Login";
 import { NewReferral } from "./pages/NewReferral";
@@ -11,6 +12,7 @@ import { ReferralDetail } from "./pages/ReferralDetail";
 import { ReferralPreview } from "./pages/ReferralPreview";
 import { ReferralPrint } from "./pages/ReferralPrint";
 import { ReferralTracker } from "./pages/ReferralTracker";
+import { RegisterFacility } from "./pages/RegisterFacility";
 import { RetrieveReferral } from "./pages/RetrieveReferral";
 import { SentReferrals } from "./pages/SentReferrals";
 import { Settings } from "./pages/Settings";
@@ -22,10 +24,12 @@ export function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<RegisterFacility />} />
           <Route element={<ProtectedRoute />}>
             <Route element={<Layout />}>
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="dashboard" element={<Dashboard />} />
+              <Route path="connectathon-guide" element={<ConnectathonGuide />} />
               <Route path="referrals" element={<ReferralTracker />} />
               <Route path="referrals/sent" element={<SentReferrals />} />
               <Route path="referrals/incoming" element={<Inbox />} />
