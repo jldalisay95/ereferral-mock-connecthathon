@@ -105,6 +105,87 @@ describe("PSGC directory", () => {
     );
   });
 
+  it("loads directory hierarchy expansions sequentially", async () => {
+    let activeRequests = 0;
+    let maximumActiveRequests = 0;
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      activeRequests += 1;
+      maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      activeRequests -= 1;
+      const valueSetId = valueSetIdFromRequest(input) ?? "";
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          resourceType: "ValueSet",
+          expansion: {
+            contains: (expansions[valueSetId] ?? []).map((item) => ({
+              system: PSGC_SYSTEM,
+              ...item
+            }))
+          }
+        })
+      } as Response;
+    });
+
+    await loadPsgcDirectory("https://tx-sequential.example.test/fhir");
+
+    expect(maximumActiveRequests).toBe(1);
+  });
+
+  it("does not let an aborted component subscriber poison the shared cache", async () => {
+    let releaseRegions!: (response: Response) => void;
+    const regionsResponse = new Promise<Response>((resolve) => {
+      releaseRegions = resolve;
+    });
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const valueSetId = valueSetIdFromRequest(input) ?? "";
+      if (valueSetId === PSGC_VALUE_SET_IDS.regions) return regionsResponse;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          resourceType: "ValueSet",
+          expansion: {
+            contains: (expansions[valueSetId] ?? []).map((item) => ({
+              system: PSGC_SYSTEM,
+              ...item
+            }))
+          }
+        })
+      } as Response;
+    });
+
+    const firstController = new AbortController();
+    const firstLoad = loadPsgcDirectory(
+      "https://tx-remount.example.test/fhir",
+      firstController.signal
+    );
+    firstController.abort();
+    const remountedLoad = loadPsgcDirectory("https://tx-remount.example.test/fhir");
+    releaseRegions({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        resourceType: "ValueSet",
+        expansion: {
+          contains: expansions[PSGC_VALUE_SET_IDS.regions].map((item) => ({
+            system: PSGC_SYSTEM,
+            ...item
+          }))
+        }
+      })
+    } as Response);
+
+    await expect(firstLoad).rejects.toMatchObject({ name: "AbortError" });
+    await expect(remountedLoad).resolves.toMatchObject({
+      regions: expect.any(Array),
+      provinces: expect.any(Array),
+      cities: expect.any(Array)
+    });
+  });
+
   it("does not use the ValueSet version as the PSGC CodeSystem version", async () => {
     vi.mocked(fetch).mockImplementation(async (input) => {
       const valueSetId = valueSetIdFromRequest(input) ?? "";
@@ -124,11 +205,7 @@ describe("PSGC directory", () => {
       } as Response;
     });
 
-    const directory = await loadPsgcDirectory(
-      "https://tx.example.test/fhir",
-      undefined,
-      true
-    );
+    const directory = await loadPsgcDirectory("https://tx.example.test/fhir");
 
     expect(directory.regions[0].version).toBe(PSGC_VERSION);
     expect(directory.regions[0].version).not.toBe("2Q-2026");
@@ -161,11 +238,7 @@ describe("PSGC directory", () => {
   });
 
   it("filters dependent province, city, and barangay choices by PSGC hierarchy", async () => {
-    const directory = await loadPsgcDirectory(
-      "https://tx.example.test/fhir",
-      undefined,
-      true
-    );
+    const directory = await loadPsgcDirectory("https://tx.example.test/fhir");
     const barangays = await loadPsgcBarangays(
       "https://tx.example.test/fhir"
     );
@@ -188,80 +261,13 @@ describe("PSGC directory", () => {
     ).toEqual(["1206306018"]);
   });
 
-  it("falls back to the bundled same-origin PSGC snapshot when live expansion is blocked", async () => {
-    clearPsgcDirectoryCache();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockImplementation(async (input) => {
-        if (String(input).includes("psgc.generated.json")) {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({
-              system: PSGC_SYSTEM,
-              version: PSGC_VERSION,
-              regions: expansions[PSGC_VALUE_SET_IDS.regions],
-              provinces: expansions[PSGC_VALUE_SET_IDS.provinces],
-              cities: expansions[PSGC_VALUE_SET_IDS.cities],
-              barangays: expansions[PSGC_VALUE_SET_IDS.barangays]
-            })
-          } as Response;
-        }
-        throw new TypeError("Failed to fetch");
-      })
-    );
-    const directory = await loadPsgcDirectory(
-      "https://tx.example.test/fhir",
-      undefined,
-      true
-    );
-    expect(directory.regions).toHaveLength(2);
-    expect(directory.cities[1].code).toBe("1206306000");
-  });
-
-  it("uses the bundled PSGC snapshot when a live terminology request is aborted", async () => {
-    clearPsgcDirectoryCache();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockImplementation(async (input) => {
-        if (String(input).includes("psgc.generated.json")) {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({
-              system: PSGC_SYSTEM,
-              version: PSGC_VERSION,
-              regions: expansions[PSGC_VALUE_SET_IDS.regions],
-              provinces: expansions[PSGC_VALUE_SET_IDS.provinces],
-              cities: expansions[PSGC_VALUE_SET_IDS.cities],
-              barangays: expansions[PSGC_VALUE_SET_IDS.barangays]
-            })
-          } as Response;
-        }
-        throw new DOMException("Aborted", "AbortError");
-      })
-    );
-    const directory = await loadPsgcDirectory(
-      "https://tx.example.test/fhir",
-      undefined,
-      true
-    );
-    expect(directory.provinces.map((option) => option.code)).toEqual([
-      "0600400000",
-      "1206300000"
-    ]);
-  });
-
-  it("does not read the bundled PSGC snapshot when live terminology is required", async () => {
+  it("fails closed when live PSGC terminology is unavailable", async () => {
     clearPsgcDirectoryCache();
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
 
     await expect(
-      loadPsgcDirectory("https://tx.example.test/fhir", undefined, false)
+      loadPsgcDirectory("https://tx.example.test/fhir")
     ).rejects.toThrow("Failed to fetch");
-    expect(fetch).not.toHaveBeenCalledWith(
-      expect.stringContaining("psgc.generated.json"),
-      expect.anything()
-    );
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });

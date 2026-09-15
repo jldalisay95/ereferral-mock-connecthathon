@@ -13,7 +13,6 @@ export function getReferralSubmissionMissing(draft: ReferralDraft): string[] {
       !draft.receivingFacility.fhirReference &&
       "Receiving facility identifier or FHIR reference",
     !draft.requestedService.code && "Requested service code",
-    !draft.clinicalReason.code && "Clinical reason code",
     !draft.chiefComplaint && "Chief complaint",
     !draft.workingImpressionText && "Working impression",
     draft.patient.pwdEnabled &&

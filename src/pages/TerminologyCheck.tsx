@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { VALUE_SETS } from "../config/fhir";
-import { CONNECTATHON_CONFIG } from "../config/connectathon.config";
+import {
+  CONNECTATHON_CONFIG,
+  resolveValueSetEndpoint,
+  type ValueSetEndpointKey
+} from "../config/connectathon.config";
 import { useAppContext } from "../context/useAppContext";
 import { expandValueSet } from "../services/terminologyClient";
 import type { CodingInput } from "../types";
@@ -16,7 +20,7 @@ interface TerminologyCheckItem {
   key: string;
   label: string;
   canonical: string;
-  fallbackOptions: readonly CodingInput[];
+  endpoint: ValueSetEndpointKey;
   psgc?: boolean;
 }
 
@@ -34,7 +38,7 @@ const psgcValueSets: TerminologyCheckItem[] = Object.entries(
   key: `psgc-${key}`,
   label: psgcLabels[key as keyof typeof psgcLabels],
   canonical,
-  fallbackOptions: [],
+  endpoint: "terminologyBaseUrl",
   psgc: true
 }));
 
@@ -49,24 +53,21 @@ export function TerminologyCheck() {
   async function expand(
     key: string,
     canonical: string,
-    fallbackOptions: readonly CodingInput[]
+    endpoint: ValueSetEndpointKey
   ) {
     setResults((current) => ({ ...current, [key]: { status: "loading", codes: [] } }));
     try {
-      const result = await expandValueSet(endpoints.terminologyBaseUrl, canonical);
+      const result = await expandValueSet(endpoints[endpoint], canonical);
       setResults((current) => ({
         ...current,
         [key]: { status: "success", codes: result.codes, total: result.total }
       }));
     } catch (error) {
-      const fallbackAllowed = CONNECTATHON_CONFIG.preset === "participant";
       setResults((current) => ({
         ...current,
         [key]: {
           status: "error",
-          codes: fallbackAllowed
-            ? fallbackOptions.map((code) => ({ ...code }))
-            : [],
+          codes: [],
           error: error instanceof Error ? error.message : "Expansion failed."
         }
       }));
@@ -76,7 +77,7 @@ export function TerminologyCheck() {
   async function expandAll() {
     await Promise.all(
       VALUE_SETS.map((item) =>
-        expand(item.key, item.canonical, item.fallbackOptions)
+        expand(item.key, item.canonical, item.endpoint)
       )
     );
   }
@@ -84,7 +85,7 @@ export function TerminologyCheck() {
   async function expandAllPsgc() {
     await Promise.all(
       psgcValueSets.map((item) =>
-        expand(item.key, item.canonical, item.fallbackOptions)
+        expand(item.key, item.canonical, item.endpoint)
       )
     );
   }
@@ -98,11 +99,16 @@ export function TerminologyCheck() {
           <div>
             <h3>{item.label}</h3>
             <code>{item.canonical}</code>
+            <small>
+              Source: <code>{item.endpoint}</code> — {resolveValueSetEndpoint(item, endpoints)}
+            </small>
           </div>
           <button
             type="button"
             className="secondary"
-            onClick={() => expand(item.key, item.canonical, item.fallbackOptions)}
+            onClick={() =>
+              expand(item.key, item.canonical, item.endpoint)
+            }
           >
             {result.status === "loading" ? "Loading..." : "Expand"}
           </button>
@@ -119,11 +125,8 @@ export function TerminologyCheck() {
           <div className="notice warning">
             <strong>Terminology server unavailable for this expansion.</strong>{" "}
             {result.error}{" "}
-            {CONNECTATHON_CONFIG.preset === "participant"
-              ? item.psgc
-                ? "Participant address controls may use the bundled PSGC snapshot, but this live terminology check did not pass."
-                : "Participant mode is showing its bundled development options; manual code entry is not enabled."
-              : "Ready mode does not permit bundled terminology. Resolve the configured terminology endpoint or canonical URL before continuing."}
+            No local fallback is permitted in either preset. Resolve the
+            configured endpoint or canonical URL before continuing.
           </div>
         ) : null}
         {result.codes.length ? (

@@ -5,9 +5,6 @@ import type {
   ReceivingResponse,
   TaskTransition
 } from "../types";
-import { CONNECTATHON_CONFIG } from "../config/connectathon.config";
-
-const WORKFLOW_SYSTEM = CONNECTATHON_CONFIG.codeSystems.workflow;
 
 const receivingResponses: ReceivingResponse[] = [
   "received",
@@ -55,31 +52,21 @@ export function applyTaskTransition(
       : task.note
   };
   if (isReceivingResponseTransition(transition)) {
-    const coding =
-      receivingResponseCoding?.code === transition
-        ? { ...receivingResponseCoding }
-        : {
-            system: WORKFLOW_SYSTEM,
-            code: transition,
-            display:
-              transition === "referred-onward"
-                ? "Referred onward"
-                : transition[0].toUpperCase() + transition.slice(1)
-          };
+    if (
+      !receivingResponseCoding?.system ||
+      receivingResponseCoding.code !== transition
+    ) {
+      throw new Error(
+        "A matching live eReferral Receiving Facility Response coding is required."
+      );
+    }
     next.businessStatus = {
-      coding: [coding]
+      coding: [{ ...receivingResponseCoding }]
     };
   }
   if (transition === "rejected") next.statusReason = { text: note.trim() };
   if (transition === "referred-onward") {
     next.statusReason = {
-      coding: [
-        {
-          system: WORKFLOW_SYSTEM,
-          code: "capacity-full",
-          display: "Capacity full"
-        }
-      ],
       text: note.trim()
     };
   }

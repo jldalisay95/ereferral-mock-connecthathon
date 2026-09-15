@@ -27,7 +27,7 @@ export function PatientRegistry() {
   const [notes, setNotes] = useState("");
   const [message, setMessage] = useState("");
   const genders = useTerminologyValueSet("administrative-gender");
-  const relationships = useTerminologyValueSet("ereferral-relationship-type");
+  const relationships = useTerminologyValueSet("patient-contact-relationship");
   const disabilities = useTerminologyValueSet("pwd-disability");
   const requiredTerminology = patient.pwdEnabled
     ? [genders, relationships, disabilities]

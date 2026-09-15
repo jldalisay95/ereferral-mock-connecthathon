@@ -1,6 +1,8 @@
-import type { CodingInput, EndpointConfig, RequestPriority } from "../types";
+import type { EndpointConfig } from "../types";
 
 export type ConnectathonPresetName = "participant" | "ready";
+
+export type ValueSetEndpointKey = Exclude<keyof EndpointConfig, "demoMode">;
 
 export interface ConnectathonCapabilities {
   remoteReads: boolean;
@@ -13,7 +15,14 @@ export interface ConformanceValueSet {
   key: string;
   label: string;
   canonical: string;
-  fallbackOptions: readonly CodingInput[];
+  endpoint: ValueSetEndpointKey;
+}
+
+export function resolveValueSetEndpoint(
+  valueSet: Pick<ConformanceValueSet, "endpoint">,
+  endpoints: EndpointConfig
+): string {
+  return endpoints[valueSet.endpoint];
 }
 
 export interface ConnectathonConfig {
@@ -33,7 +42,6 @@ export interface ConnectathonConfig {
   extensions: Record<string, string>;
   identifierSystems: Record<string, string>;
   codeSystems: {
-    workflow: string;
     psgc: string;
   };
   psgc: {
@@ -43,13 +51,6 @@ export interface ConnectathonConfig {
     valueSetIds: Record<"regions" | "provinces" | "cities" | "barangays" | "all", string>;
   };
   terminology: {
-    referralCategories: readonly CodingInput[];
-    requestedServices: readonly CodingInput[];
-    clinicalReasons: readonly CodingInput[];
-    relationships: readonly CodingInput[];
-    disabilities: readonly CodingInput[];
-    practitionerRoles: readonly CodingInput[];
-    priorities: ReadonlyArray<{ code: RequestPriority; display: string }>;
     valueSets: readonly ConformanceValueSet[];
   };
   features: {
@@ -71,12 +72,6 @@ export const PRESET_CAPABILITIES: Record<ConnectathonPresetName, ConnectathonCap
     externalWrites: true
   }
 };
-
-const coding = (system: string, code: string, display: string): CodingInput => ({
-  system,
-  code,
-  display
-});
 
 // EDIT FOR YOUR FORK — active PHeRef/PH Core implementation guide and test servers.
 // IG home: https://fhir.doh.gov.ph/pheref/
@@ -130,7 +125,6 @@ const EDITABLE_CONFORMANCE = {
     referral: "https://fhir.doh.gov.ph/pheref/Identifier/referral-id"
   },
   codeSystems: {
-    workflow: "https://fhir.doh.gov.ph/pheref/CodeSystem/ereferral-workflow",
     psgc: "https://psa.gov.ph/classification/psgc"
   },
 
@@ -160,190 +154,86 @@ const EDITABLE_CONFORMANCE = {
   }
 } as const;
 
-// EDIT FOR YOUR FORK — fallback terminology keeps form development usable, but
-// readiness requires successful live ValueSet expansion from the configured server.
-const REFERRAL_CATEGORY_OPTIONS = [
-  coding("http://snomed.info/sct", "73770003", "Emergency"),
-  coding("http://snomed.info/sct", "440655000", "Outpatient environment")
-] as const;
-
-const REQUESTED_SERVICE_OPTIONS = [
-  coding("http://snomed.info/sct", "11429006", "Consultation"),
-  coding("http://snomed.info/sct", "165197003", "Diagnostic assessment"),
-  coding("http://snomed.info/sct", "71388002", "Procedure"),
-  coding("http://snomed.info/sct", "3457005", "Others")
-] as const;
-
-const CLINICAL_REASON_OPTIONS = [
-  coding("http://snomed.info/sct", "267036007", "Dyspnea"),
-  coding("http://snomed.info/sct", "29857009", "Chest pain"),
-  coding("http://snomed.info/sct", "414545008", "Suspected lung cancer"),
-  coding("http://snomed.info/sct", "42343007", "Congestive heart failure"),
-  coding("http://snomed.info/sct", "49436004", "Atrial fibrillation"),
-  coding("http://snomed.info/sct", "59621000", "Essential hypertension"),
-  coding("http://snomed.info/sct", "73211009", "Diabetes mellitus"),
-  coding("http://snomed.info/sct", "109006", "Anxiety disorder")
-] as const;
-
-const RELATIONSHIP_OPTIONS = [
-  coding("http://terminology.hl7.org/CodeSystem/v3-RoleCode", "NOK", "Next of Kin"),
-  coding("http://terminology.hl7.org/CodeSystem/v3-RoleCode", "ECON", "Emergency Contact"),
-  coding("http://terminology.hl7.org/CodeSystem/v3-RoleCode", "GUARD", "Guardian"),
-  coding("http://terminology.hl7.org/CodeSystem/v3-RoleCode", "FAMMEMB", "Family Member"),
-  coding("http://terminology.hl7.org/CodeSystem/v3-RoleCode", "PRN", "Parent"),
-  coding("http://terminology.hl7.org/CodeSystem/v3-RoleCode", "FTH", "Father"),
-  coding("http://terminology.hl7.org/CodeSystem/v3-RoleCode", "MTH", "Mother"),
-  coding("http://terminology.hl7.org/CodeSystem/v3-RoleCode", "SPS", "Spouse"),
-  coding("http://terminology.hl7.org/CodeSystem/v3-RoleCode", "CHILD", "Child"),
-  coding("http://terminology.hl7.org/CodeSystem/v3-RoleCode", "FRND", "Friend")
-] as const;
-
-const PWD_DISABILITY_OPTIONS = [
-  coding("https://fhir.doh.gov.ph/pheref/CodeSystem/pwd-disability-type-cs", "visual", "Visual Disability"),
-  coding("https://fhir.doh.gov.ph/pheref/CodeSystem/pwd-disability-type-cs", "hearing", "Hearing Disability"),
-  coding("https://fhir.doh.gov.ph/pheref/CodeSystem/pwd-disability-type-cs", "speech", "Speech Impairment"),
-  coding("https://fhir.doh.gov.ph/pheref/CodeSystem/pwd-disability-type-cs", "physical", "Physical/Orthopedic Disability"),
-  coding("https://fhir.doh.gov.ph/pheref/CodeSystem/pwd-disability-type-cs", "intellectual", "Intellectual Disability"),
-  coding("https://fhir.doh.gov.ph/pheref/CodeSystem/pwd-disability-type-cs", "learning", "Learning Disability"),
-  coding("https://fhir.doh.gov.ph/pheref/CodeSystem/pwd-disability-type-cs", "psychosocial", "Psychosocial Disability"),
-  coding("https://fhir.doh.gov.ph/pheref/CodeSystem/pwd-disability-type-cs", "visual-low-vision", "Low Vision"),
-  coding("https://fhir.doh.gov.ph/pheref/CodeSystem/pwd-disability-type-cs", "visual-blindness", "Blindness")
-] as const;
-
-const PRACTITIONER_ROLE_OPTIONS = [
-  coding("http://snomed.info/sct", "158965000", "Doctor"),
-  coding("http://snomed.info/sct", "265937000", "Nurse"),
-  coding("http://snomed.info/sct", "309453006", "Midwife"),
-  coding("http://snomed.info/sct", "46255001", "Pharmacist"),
-  coding("http://snomed.info/sct", "386629007", "Medical Technologist"),
-  coding("http://snomed.info/sct", "159282002", "Laboratory Aide"),
-  coding("http://snomed.info/sct", "106289002", "Dentist"),
-  coding("http://snomed.info/sct", "4162009", "Dental Aide"),
-  coding("http://snomed.info/sct", "28229004", "Optometrist"),
-  coding("https://fhir.doh.gov.ph/phcore/CodeSystem/PSOC", "3253", "Barangay Health Worker"),
-  coding("https://fhir.doh.gov.ph/phcore/CodeSystem/PHCW", "PCW", "Primary Care Worker")
-] as const;
-
-const RECEIVING_RESPONSE_OPTIONS = [
-  coding("https://fhir.doh.gov.ph/pheref/CodeSystem/ereferral-receiving-response", "received", "Received"),
-  coding("https://fhir.doh.gov.ph/pheref/CodeSystem/ereferral-receiving-response", "accepted", "Accepted"),
-  coding("https://fhir.doh.gov.ph/pheref/CodeSystem/ereferral-receiving-response", "rejected", "Rejected"),
-  coding("https://fhir.doh.gov.ph/pheref/CodeSystem/ereferral-receiving-response", "referred-onward", "Referred onward")
-] as const;
-
-const REFERRAL_PRIORITY_OPTIONS: ReadonlyArray<{ code: RequestPriority; display: string }> = [
-  { code: "routine", display: "Routine" },
-  { code: "urgent", display: "Urgent" },
-  { code: "asap", display: "ASAP" },
-  { code: "stat", display: "STAT" }
-];
-
-// EDIT FOR YOUR FORK — project/IG ValueSet canonicals and fallback codes.
+// EDIT FOR YOUR FORK — project/IG ValueSet canonicals and expansion endpoints.
+// Every coded option is loaded live; no local terminology fallback is used.
 const PROJECT_VALUE_SETS: readonly ConformanceValueSet[] = [
   {
     key: "practitioner-role",
     label: "Practitioner Role",
     canonical: "https://www.fhir.doh.gov.ph/pheref/ValueSet/practitioner-role",
-    fallbackOptions: PRACTITIONER_ROLE_OPTIONS
+    endpoint: "terminologyBaseUrl"
   },
   {
     key: "referral-category",
     label: "Referral Category",
     canonical: "https://www.fhir.doh.gov.ph/pheref/ValueSet/referral-category",
-    fallbackOptions: REFERRAL_CATEGORY_OPTIONS
+    endpoint: "terminologyBaseUrl"
   },
   {
     key: "reason-for-referral-service-type",
     label: "Reason for Referral / Service Type",
     canonical:
       "https://www.fhir.doh.gov.ph/pheref/ValueSet/reason-for-referral-service-type",
-    fallbackOptions: REQUESTED_SERVICE_OPTIONS
+    endpoint: "terminologyBaseUrl"
   },
   {
     key: "pwd-disability",
     label: "PWD Disability Type",
     canonical: "https://fhir.doh.gov.ph/pheref/ValueSet/pwd-disability-type-vs",
-    fallbackOptions: PWD_DISABILITY_OPTIONS
+    endpoint: "pherefBaseUrl"
   },
   {
     key: "ereferral-relationship-type",
     label: "eReferral Relationship Type",
     canonical: "https://fhir.doh.gov.ph/pheref/ValueSet/ereferral-relationship-type",
-    fallbackOptions: RELATIONSHIP_OPTIONS
+    endpoint: "pherefBaseUrl"
   },
   {
     key: "ereferral-receiving-response",
     label: "eReferral Receiving Facility Response",
     canonical: "https://fhir.doh.gov.ph/pheref/ValueSet/ereferral-receiving-response",
-    fallbackOptions: RECEIVING_RESPONSE_OPTIONS
+    endpoint: "pherefBaseUrl"
   }
 ];
 
-// STANDARD FHIR CONSTANTS — do not edit for a Connectathon fork.
+// STANDARD FHIR CONSTANTS. Keep canonical URLs fixed; endpoint selects which
+// configured server performs the read-only ValueSet/$expand operation.
 const STANDARD_FHIR_VALUE_SETS: readonly ConformanceValueSet[] = [
+  {
+    key: "patient-contact-relationship",
+    label: "Patient Contact Relationship",
+    canonical: "http://hl7.org/fhir/ValueSet/patient-contactrelationship",
+    endpoint: "pherefBaseUrl"
+  },
   {
     key: "administrative-gender",
     label: "Administrative Gender",
     canonical: "http://hl7.org/fhir/ValueSet/administrative-gender",
-    fallbackOptions: [
-      coding("http://hl7.org/fhir/administrative-gender", "male", "Male"),
-      coding("http://hl7.org/fhir/administrative-gender", "female", "Female"),
-      coding("http://hl7.org/fhir/administrative-gender", "other", "Other"),
-      coding("http://hl7.org/fhir/administrative-gender", "unknown", "Unknown")
-    ]
+    endpoint: "pherefBaseUrl"
   },
   {
     key: "request-priority",
     label: "Request Priority",
     canonical: "http://hl7.org/fhir/ValueSet/request-priority",
-    fallbackOptions: REFERRAL_PRIORITY_OPTIONS.map((option) =>
-      coding("http://hl7.org/fhir/request-priority", option.code, option.display)
-    )
+    endpoint: "pherefBaseUrl"
   },
   {
     key: "task-status",
     label: "Task Status",
     canonical: "http://hl7.org/fhir/ValueSet/task-status",
-    fallbackOptions: [
-      coding("http://hl7.org/fhir/task-status", "draft", "Draft"),
-      coding("http://hl7.org/fhir/task-status", "requested", "Requested"),
-      coding("http://hl7.org/fhir/task-status", "received", "Received"),
-      coding("http://hl7.org/fhir/task-status", "accepted", "Accepted"),
-      coding("http://hl7.org/fhir/task-status", "rejected", "Rejected"),
-      coding("http://hl7.org/fhir/task-status", "ready", "Ready"),
-      coding("http://hl7.org/fhir/task-status", "cancelled", "Cancelled"),
-      coding("http://hl7.org/fhir/task-status", "in-progress", "In Progress"),
-      coding("http://hl7.org/fhir/task-status", "on-hold", "On Hold"),
-      coding("http://hl7.org/fhir/task-status", "failed", "Failed"),
-      coding("http://hl7.org/fhir/task-status", "completed", "Completed"),
-      coding("http://hl7.org/fhir/task-status", "entered-in-error", "Entered in Error")
-    ]
+    endpoint: "pherefBaseUrl"
   },
   {
     key: "contact-point-system",
     label: "Contact Point System",
     canonical: "http://hl7.org/fhir/ValueSet/contact-point-system",
-    fallbackOptions: [
-      coding("http://hl7.org/fhir/contact-point-system", "phone", "Phone"),
-      coding("http://hl7.org/fhir/contact-point-system", "fax", "Fax"),
-      coding("http://hl7.org/fhir/contact-point-system", "email", "Email"),
-      coding("http://hl7.org/fhir/contact-point-system", "pager", "Pager"),
-      coding("http://hl7.org/fhir/contact-point-system", "url", "URL"),
-      coding("http://hl7.org/fhir/contact-point-system", "sms", "SMS"),
-      coding("http://hl7.org/fhir/contact-point-system", "other", "Other")
-    ]
+    endpoint: "pherefBaseUrl"
   },
   {
     key: "contact-point-use",
     label: "Contact Point Use",
     canonical: "http://hl7.org/fhir/ValueSet/contact-point-use",
-    fallbackOptions: [
-      coding("http://hl7.org/fhir/contact-point-use", "home", "Home"),
-      coding("http://hl7.org/fhir/contact-point-use", "work", "Work"),
-      coding("http://hl7.org/fhir/contact-point-use", "temp", "Temporary"),
-      coding("http://hl7.org/fhir/contact-point-use", "old", "Old"),
-      coding("http://hl7.org/fhir/contact-point-use", "mobile", "Mobile")
-    ]
+    endpoint: "pherefBaseUrl"
   }
 ];
 
@@ -371,13 +261,6 @@ export const CONNECTATHON_CONFIG: ConnectathonConfig = {
   },
   capabilities: PRESET_CAPABILITIES[CONNECTATHON_PRESET],
   terminology: {
-    referralCategories: REFERRAL_CATEGORY_OPTIONS,
-    requestedServices: REQUESTED_SERVICE_OPTIONS,
-    clinicalReasons: CLINICAL_REASON_OPTIONS,
-    relationships: RELATIONSHIP_OPTIONS,
-    disabilities: PWD_DISABILITY_OPTIONS,
-    practitionerRoles: PRACTITIONER_ROLE_OPTIONS,
-    priorities: REFERRAL_PRIORITY_OPTIONS,
     valueSets: VALUE_SETS
   }
 };

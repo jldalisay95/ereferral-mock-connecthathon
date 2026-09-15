@@ -1,10 +1,5 @@
 import {
-  CLINICAL_REASON_OPTIONS,
   DEFAULT_ENDPOINTS,
-  PWD_DISABILITY_OPTIONS,
-  REFERRAL_CATEGORY_OPTIONS,
-  RELATIONSHIP_OPTIONS,
-  REQUESTED_SERVICE_OPTIONS,
   PSGC_VERSION
 } from "../config/fhir";
 import { createDemoDraft } from "../data/demo";
@@ -61,25 +56,18 @@ function buildSession(value: Partial<AppSession> | null | undefined): AppSession
   };
 }
 
-function matchingCoding(
-  value: unknown,
-  options: readonly CodingInput[],
-  fallback: CodingInput
-) {
+function normalizeCoding(value: unknown): CodingInput {
   if (value && typeof value === "object") {
     const codingValue = value as Partial<CodingInput>;
-    const match = options.find(
-      (option) =>
-        option.code === codingValue.code &&
-        (!codingValue.system || option.system === codingValue.system)
-    );
-    if (match) return { ...match };
+    if (typeof codingValue.system === "string" && typeof codingValue.code === "string") {
+      return {
+        system: codingValue.system,
+        code: codingValue.code,
+        display: typeof codingValue.display === "string" ? codingValue.display : ""
+      };
+    }
   }
-  if (typeof value === "string") {
-    const match = options.find((option) => option.code === value);
-    if (match) return { ...match };
-  }
-  return { ...fallback };
+  return { system: "", code: "", display: "" };
 }
 
 const PSGC_CODE_MIGRATIONS: Record<
@@ -146,25 +134,10 @@ function normalizePatient(value: unknown): ReferralDraft["patient"] {
     ...fallback,
     ...source,
     address: normalizeAddress(source.address, fallback.address),
-    contactRelationship: matchingCoding(
-      source.contactRelationship,
-      RELATIONSHIP_OPTIONS,
-      RELATIONSHIP_OPTIONS[0]
-    ),
-    disabilities: disabilityValues.flatMap((value) => {
-      const match = matchingCoding(
-        value,
-        PWD_DISABILITY_OPTIONS,
-        PWD_DISABILITY_OPTIONS[0]
-      );
-      return value &&
-        typeof value === "object" &&
-        PWD_DISABILITY_OPTIONS.some(
-          (option) => option.code === (value as Partial<CodingInput>).code
-        )
-        ? [match]
-        : [];
-    })
+    contactRelationship: normalizeCoding(source.contactRelationship),
+    disabilities: disabilityValues
+      .map(normalizeCoding)
+      .filter((coding) => coding.system && coding.code)
   } as ReferralDraft["patient"];
 }
 
@@ -185,27 +158,15 @@ function normalizeDraft(value: Partial<ReferralDraft> & Record<string, unknown>)
     patientRecordId: value.patientRecordId ?? "",
     timeCalled: value.timeCalled ?? value.authoredOn ?? fallback.timeCalled,
     patient: normalizePatient(value.patient),
-    referralCategory: matchingCoding(
-      value.referralCategory,
-      REFERRAL_CATEGORY_OPTIONS,
-      fallback.referralCategory
-    ),
-    requestedService: matchingCoding(
-      value.requestedService ?? legacyService,
-      REQUESTED_SERVICE_OPTIONS,
-      fallback.requestedService
-    ),
-    clinicalReason: matchingCoding(
-      value.clinicalReason ?? value.workingImpression,
-      CLINICAL_REASON_OPTIONS,
-      fallback.clinicalReason
-    ),
+    referralCategory: normalizeCoding(value.referralCategory),
+    requestedService: normalizeCoding(value.requestedService ?? legacyService),
+    clinicalReason: normalizeCoding(value.clinicalReason ?? value.workingImpression),
     initiatingFacility,
     receivingFacility,
     receivingPractitioner: receivingFacility.fhirReference
       ? undefined
       : value.receivingPractitioner ?? fallback.receivingPractitioner,
-    priority: value.priority ?? "urgent",
+    priority: value.priority ?? "",
     remarks: value.remarks ?? "",
     referralCriteriaSatisfied: value.referralCriteriaSatisfied ?? false,
     consentGiven: value.consentGiven ?? false,

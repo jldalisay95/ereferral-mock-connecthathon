@@ -30,6 +30,49 @@ const psgcExpansions: Record<string, Array<{ code: string; display: string }>> =
   ]
 };
 
+const terminologyExpansions: Record<
+  string,
+  Array<{ system: string; code: string; display: string }>
+> = {
+  "practitioner-role": [
+    { system: "http://snomed.info/sct", code: "158965000", display: "Doctor" }
+  ],
+  "referral-category": [
+    { system: "http://snomed.info/sct", code: "73770003", display: "Emergency" }
+  ],
+  "reason-for-referral-service-type": [
+    { system: "http://snomed.info/sct", code: "11429006", display: "Consultation" }
+  ],
+  "pwd-disability": [
+    { system: "https://fhir.doh.gov.ph/pheref/CodeSystem/pwd-disability-type-cs", code: "visual", display: "Visual Disability" }
+  ],
+  "ereferral-relationship-type": [
+    { system: "http://terminology.hl7.org/CodeSystem/v3-RoleCode", code: "NOK", display: "next of kin" }
+  ],
+  "ereferral-receiving-response": [
+    { system: "https://fhir.doh.gov.ph/pheref/CodeSystem/ereferral-receiving-response", code: "received", display: "Received" }
+  ],
+  "patient-contact-relationship": [
+    { system: "http://terminology.hl7.org/CodeSystem/v2-0131", code: "N", display: "Next-of-Kin" }
+  ],
+  "administrative-gender": [
+    { system: "http://hl7.org/fhir/administrative-gender", code: "female", display: "Female" },
+    { system: "http://hl7.org/fhir/administrative-gender", code: "unknown", display: "Unknown" }
+  ],
+  "request-priority": [
+    { system: "http://hl7.org/fhir/request-priority", code: "urgent", display: "Urgent" }
+  ],
+  "task-status": [
+    { system: "http://hl7.org/fhir/task-status", code: "requested", display: "Requested" }
+  ],
+  "contact-point-system": [
+    { system: "http://hl7.org/fhir/contact-point-system", code: "phone", display: "Phone" }
+  ],
+  "contact-point-use": [
+    { system: "http://hl7.org/fhir/contact-point-use", code: "mobile", display: "Mobile" }
+  ]
+};
+
 function psgcResponse(input: RequestInfo | URL): Response | undefined {
   const url = new URL(String(input), "http://localhost");
   const canonical = url.searchParams.get("url");
@@ -40,12 +83,7 @@ function psgcResponse(input: RequestInfo | URL): Response | undefined {
       )
     : undefined;
   if (!rows && !configuredValueSet) return undefined;
-  const expandedRows =
-    rows ?? configuredValueSet?.fallbackOptions.map(({ system, code, display }) => ({
-      system,
-      code,
-      display
-    })) ?? [];
+  const expandedRows = rows ?? terminologyExpansions[configuredValueSet?.key ?? ""] ?? [];
   return {
     ok: true,
     status: 200,
@@ -80,6 +118,10 @@ async function completeFacilityForm(user: ReturnType<typeof userEvent.setup>) {
   await user.selectOptions(
     screen.getByLabelText("Barangay"),
     await screen.findByRole("option", { name: "Poblacion" })
+  );
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: /^Practitioner role/ }),
+    await screen.findByRole("option", { name: "Doctor" })
   );
   await user.type(screen.getByLabelText("Account username"), "newserver");
   await user.type(screen.getByLabelText("Account password"), "demo123");
@@ -254,6 +296,15 @@ describe("application workflow", () => {
     await user.click(screen.getByRole("button", { name: "Continue to destination" }));
     await user.click(screen.getByRole("button", { name: "Continue to referral details" }));
     await screen.findByRole("option", { name: "Emergency" });
+    await user.selectOptions(screen.getByLabelText("Priority"), "urgent");
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /^Referral category/ }),
+      "http://snomed.info/sct|73770003"
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /^Requested service/ }),
+      "http://snomed.info/sct|11429006"
+    );
     await user.click(screen.getByRole("link", { name: "Preview and validate" }));
     await user.click(screen.getByRole("button", { name: "Validate Bundle" }));
     expect(

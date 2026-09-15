@@ -1,4 +1,3 @@
-import { CONNECTATHON_CONFIG } from "../config/connectathon.config";
 import { EMPTY_ADDRESS } from "../data/patients";
 import type {
   FacilityAccount,
@@ -18,7 +17,7 @@ export function emptyFacilityRegistration(): FacilityRegistrationInput {
     practitionerGiven: "",
     practitionerFamily: "",
     practitionerLicense: "",
-    practitionerRole: { ...CONNECTATHON_CONFIG.terminology.practitionerRoles[0] },
+    practitionerRole: { system: "", code: "", display: "" },
     username: "",
     password: "",
     passwordConfirmation: ""

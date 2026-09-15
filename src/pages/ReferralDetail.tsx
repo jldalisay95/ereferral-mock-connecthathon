@@ -76,7 +76,8 @@ export function ReferralDetail() {
   const liveResponseRequired =
     isReceivingResponse &&
     receivingResponses.requiresLiveExpansion &&
-    receivingResponses.source !== "server";
+    (receivingResponses.source !== "server" ||
+      !receivingResponses.options.some((option) => option.code === transition));
 
   useEffect(() => {
     if (id) markReferralNotificationsRead(id);

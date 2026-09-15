@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { CONNECTATHON_CONFIG } from "../config/connectathon.config";
+import {
+  CONNECTATHON_CONFIG,
+  resolveValueSetEndpoint
+} from "../config/connectathon.config";
 import { useAppContext } from "../context/useAppContext";
 import { expandValueSet } from "../services/terminologyClient";
 import type { CodingInput } from "../types";
 
-export type TerminologySource = "server" | "fallback" | "none";
+export type TerminologySource = "server" | "none";
 
 export interface TerminologyValueSetState {
   canonical: string;
@@ -24,26 +27,23 @@ export function useTerminologyValueSet(key: string): TerminologyValueSetState {
   );
   if (!definition) throw new Error(`Unknown terminology configuration key: ${key}`);
 
-  const requiresLiveExpansion = CONNECTATHON_CONFIG.preset === "ready";
-  const fallback = useMemo(
-    () => definition.fallbackOptions.map((option) => ({ ...option })),
-    [definition]
-  );
+  const requiresLiveExpansion = true;
+  const expansionBaseUrl = resolveValueSetEndpoint(definition, endpoints);
   const [state, setState] = useState<Omit<TerminologyValueSetState, "canonical" | "label" | "requiresLiveExpansion">>({
     status: "loading",
-    source: requiresLiveExpansion ? "none" : "fallback",
-    options: requiresLiveExpansion ? [] : fallback
+    source: "none",
+    options: []
   });
 
   useEffect(() => {
     const controller = new AbortController();
     setState({
       status: "loading",
-      source: requiresLiveExpansion ? "none" : "fallback",
-      options: requiresLiveExpansion ? [] : fallback
+      source: "none",
+      options: []
     });
     expandValueSet(
-      endpoints.terminologyBaseUrl,
+      expansionBaseUrl,
       definition.canonical,
       controller.signal
     )
@@ -54,13 +54,13 @@ export function useTerminologyValueSet(key: string): TerminologyValueSetState {
         if (controller.signal.aborted) return;
         setState({
           status: "error",
-          source: requiresLiveExpansion ? "none" : "fallback",
-          options: requiresLiveExpansion ? [] : fallback,
+          source: "none",
+          options: [],
           error: error instanceof Error ? error.message : "ValueSet expansion failed."
         });
       });
     return () => controller.abort();
-  }, [definition, endpoints.terminologyBaseUrl, fallback, requiresLiveExpansion]);
+  }, [definition, expansionBaseUrl]);
 
   return {
     ...state,

@@ -29,6 +29,8 @@ export function PsgcAddressFields({
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
     "loading"
   );
+  const [error, setError] = useState("");
+  const [reloadToken, setReloadToken] = useState(0);
   const [barangayStatus, setBarangayStatus] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle");
@@ -36,14 +38,20 @@ export function PsgcAddressFields({
   useEffect(() => {
     const controller = new AbortController();
     setStatus("loading");
+    setError("");
     loadPsgcDirectory(terminologyBaseUrl, controller.signal)
       .then((value) => {
+        if (controller.signal.aborted) return;
         setDirectory(value);
         setStatus("ready");
       })
-      .catch(() => setStatus("error"));
+      .catch((loadError) => {
+        if (controller.signal.aborted) return;
+        setError(loadError instanceof Error ? loadError.message : "PSGC request failed.");
+        setStatus("error");
+      });
     return () => controller.abort();
-  }, [terminologyBaseUrl]);
+  }, [terminologyBaseUrl, reloadToken]);
 
   useEffect(() => {
     if (!address.cityCode) {
@@ -149,7 +157,14 @@ export function PsgcAddressFields({
       {status === "error" ? (
         <div className="notice warning">
           PSGC terminology could not be loaded. Existing coded address values
-          are retained, but geographic manual entry is disabled.
+          are retained, but geographic manual entry is disabled. {error}{" "}
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => setReloadToken((current) => current + 1)}
+          >
+            Retry PSGC
+          </button>
         </div>
       ) : null}
       <div className="form-grid three">

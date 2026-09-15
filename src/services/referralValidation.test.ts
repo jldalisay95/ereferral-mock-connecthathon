@@ -6,6 +6,20 @@ import {
   getReferralSubmissionMissing
 } from "./referralValidation";
 
+function selectRequiredLiveTerminology(draft: ReturnType<typeof createDemoDraft>) {
+  draft.referralCategory = {
+    system: "http://snomed.info/sct",
+    code: "73770003",
+    display: "Emergency"
+  };
+  draft.requestedService = {
+    system: "http://snomed.info/sct",
+    code: "11429006",
+    display: "Consultation"
+  };
+  draft.priority = "urgent";
+}
+
 describe("referral submission requirements", () => {
   it("blocks criteria, consent, and incomplete walk-in demographics", () => {
     const draft = createDemoDraft();
@@ -26,6 +40,7 @@ describe("referral submission requirements", () => {
 
   it("accepts a complete referral draft", () => {
     const draft = createDemoDraft();
+    selectRequiredLiveTerminology(draft);
     draft.referralCriteriaSatisfied = true;
     draft.consentGiven = true;
     expect(getReferralSubmissionMissing(draft)).toEqual([]);
@@ -34,6 +49,7 @@ describe("referral submission requirements", () => {
 
   it("accepts a receiving Organization selected by FHIR reference", () => {
     const draft = createDemoDraft();
+    selectRequiredLiveTerminology(draft);
     draft.referralCriteriaSatisfied = true;
     draft.consentGiven = true;
     draft.receivingFacility.nhfrCode = "";

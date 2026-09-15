@@ -91,25 +91,27 @@ describe("versioned local repository", () => {
     expect(state.referrals[0].draft.referralCategory).toEqual(
       expect.objectContaining({
         code: "440655000",
-        display: "Outpatient environment"
+        display: "Outpatient"
       })
     );
     expect(state.referrals[0].draft.requestedService).toEqual(
       expect.objectContaining({
         code: "165197003",
-        display: "Diagnostic assessment"
+        display: "Diagnostics"
       })
     );
     expect(JSON.stringify(state.referrals[0].fhirBundle)).toContain("440655000");
-    expect(JSON.stringify(state.referrals[0].fhirBundle)).not.toContain(
-      "Outpatient\""
-    );
+    expect(JSON.stringify(state.referrals[0].fhirBundle)).toContain("Outpatient");
   });
 
   it("normalizes legacy contact and disability coding into constrained choices", () => {
     const draft = createDemoDraft();
     const legacyPatient = draft.patient as unknown as Record<string, unknown>;
-    legacyPatient.contactRelationship = "SPS";
+    legacyPatient.contactRelationship = {
+      system: "http://terminology.hl7.org/CodeSystem/v3-RoleCode",
+      code: "NOK",
+      display: "Next of Kin"
+    };
     legacyPatient.disability = {
       system: "https://fhir.doh.gov.ph/pheref/CodeSystem/pwd-disability-type-cs",
       code: "hearing",
@@ -143,13 +145,12 @@ describe("versioned local repository", () => {
     expect(state.referrals[0].draft.patient.contactRelationship).toEqual(
       expect.objectContaining({
         system: "http://terminology.hl7.org/CodeSystem/v3-RoleCode",
-        code: "SPS",
-        display: "Spouse"
+        code: "NOK",
+        display: "Next of Kin"
       })
     );
-    expect(state.referrals[0].draft.patient.disabilities[0].display).toBe(
-      "Hearing Disability"
-    );
+    expect(JSON.stringify(state.referrals[0].fhirBundle)).not.toContain('"code":"NOK"');
+    expect(state.referrals[0].draft.patient.disabilities[0].display).toBe("Custom display");
     expect(state.patients[0].patient.disabilities[0].code).toBe("hearing");
   });
 

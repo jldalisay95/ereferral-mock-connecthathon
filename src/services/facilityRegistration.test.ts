@@ -27,7 +27,12 @@ function completeRegistration() {
     },
     username: "publictest",
     password: "synthetic-password",
-    passwordConfirmation: "synthetic-password"
+    passwordConfirmation: "synthetic-password",
+    practitionerRole: {
+      system: "http://snomed.info/sct",
+      code: "158965000",
+      display: "Doctor"
+    }
   };
 }
 

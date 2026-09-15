@@ -76,7 +76,7 @@ export interface PatientRecord {
   updatedAt: string;
 }
 
-export type RequestPriority = "routine" | "urgent" | "asap" | "stat";
+export type RequestPriority = "" | "routine" | "urgent" | "asap" | "stat";
 
 export interface ReferralDraft {
   referralId: string;

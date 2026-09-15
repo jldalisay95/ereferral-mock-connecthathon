@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   IDENTIFIER_SYSTEMS,
-  PWD_DISABILITY_OPTIONS,
   PROFILES
 } from "../../config/fhir";
 import { createDemoDraft } from "../../data/demo";
@@ -38,8 +37,9 @@ describe("PHeRef builders", () => {
     )[0];
     expect(contact.relationship[0].coding[0]).toEqual(
       expect.objectContaining({
-        system: "http://terminology.hl7.org/CodeSystem/v3-RoleCode",
-        code: "NOK"
+        system: "http://terminology.hl7.org/CodeSystem/v2-0131",
+        code: "N",
+        display: "Next-of-Kin"
       })
     );
   });
@@ -49,9 +49,21 @@ describe("PHeRef builders", () => {
     expect(buildPatient(draft).extension).toBeUndefined();
     draft.patient.pwdEnabled = true;
     draft.patient.pwdId = "SYN-PWD-1";
+    const disabilityOptions = [
+      {
+        system: "https://fhir.doh.gov.ph/pheref/CodeSystem/pwd-disability-type-cs",
+        code: "visual",
+        display: "Visual Disability"
+      },
+      {
+        system: "https://fhir.doh.gov.ph/pheref/CodeSystem/pwd-disability-type-cs",
+        code: "hearing",
+        display: "Hearing Disability"
+      }
+    ];
     draft.patient.disabilities = [
-      { ...PWD_DISABILITY_OPTIONS[0] },
-      { ...PWD_DISABILITY_OPTIONS[1] }
+      { ...disabilityOptions[0] },
+      { ...disabilityOptions[1] }
     ];
     draft.patient.pwdExpirationDate = "2028-01-01";
     const patient = buildPatient(draft);
@@ -64,7 +76,7 @@ describe("PHeRef builders", () => {
             url: "disabilityType",
             valueCodeableConcept: expect.objectContaining({
               coding: [
-                expect.objectContaining({ code: PWD_DISABILITY_OPTIONS[0].code })
+                expect.objectContaining({ code: disabilityOptions[0].code })
               ]
             })
           }),
@@ -72,7 +84,7 @@ describe("PHeRef builders", () => {
             url: "disabilityType",
             valueCodeableConcept: expect.objectContaining({
               coding: [
-                expect.objectContaining({ code: PWD_DISABILITY_OPTIONS[1].code })
+                expect.objectContaining({ code: disabilityOptions[1].code })
               ]
             })
           }),
@@ -201,7 +213,19 @@ describe("PHeRef builders", () => {
   });
 
   it("builds 22 entries with seven conditional PUTs, fifteen POSTs, and valid urn references", () => {
-    const bundle = buildReferralTransactionBundle(createDemoDraft());
+    const draft = createDemoDraft();
+    draft.referralCategory = {
+      system: "http://snomed.info/sct",
+      code: "73770003",
+      display: "Emergency"
+    };
+    draft.requestedService = {
+      system: "http://snomed.info/sct",
+      code: "11429006",
+      display: "Consultation"
+    };
+    draft.priority = "urgent";
+    const bundle = buildReferralTransactionBundle(draft);
     const entries = bundle.entry as Array<{
       fullUrl: string;
       request: { method: string; url: string };

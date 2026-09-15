@@ -1,4 +1,4 @@
-import { PSGC_VERSION, RELATIONSHIP_OPTIONS } from "../config/fhir";
+import { PSGC_VERSION } from "../config/fhir";
 import type { PatientInput, PatientRecord } from "../types";
 
 export const EMPTY_ADDRESS = {
@@ -27,7 +27,7 @@ export function createEmptyPatient(): PatientInput {
     phone: "",
     address: { ...EMPTY_ADDRESS },
     contactName: "",
-    contactRelationship: { ...RELATIONSHIP_OPTIONS[0] },
+    contactRelationship: { system: "", code: "", display: "" },
     contactPhone: "",
     pwdEnabled: false,
     pwdId: "",
@@ -67,7 +67,11 @@ export const DEMO_PATIENTS: PatientRecord[] = [
         psgcVersion: PSGC_VERSION
       },
       contactName: "Ramon Dela Cruz",
-      contactRelationship: { ...RELATIONSHIP_OPTIONS[0] },
+      contactRelationship: {
+        system: "http://terminology.hl7.org/CodeSystem/v2-0131",
+        code: "N",
+        display: "Next-of-Kin"
+      },
       contactPhone: "+63-900-000-0002"
     },
     notes: "Synthetic Connectathon patient.",

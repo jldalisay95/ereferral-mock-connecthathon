@@ -1,4 +1,7 @@
-import type { ConnectathonConfig } from "../config/connectathon.config";
+import {
+  resolveValueSetEndpoint,
+  type ConnectathonConfig
+} from "../config/connectathon.config";
 import type { EndpointConfig, FhirResource } from "../types";
 import { getMetadata, searchResources } from "./fhirClient";
 import { buildExpandUrl, expandValueSet } from "./terminologyClient";
@@ -39,6 +42,10 @@ export function checkConfiguredUrls(
     ...Object.entries(config.psgc.valueSets).map(([key, value]) => [
       `psgc.valueSets.${key}`,
       value
+    ]),
+    ...config.terminology.valueSets.map((valueSet) => [
+      `terminology.valueSets.${valueSet.key}.canonical`,
+      valueSet.canonical
     ])
   ];
   const invalid = values.filter(([, value]) => !isWebUrl(value));
@@ -129,14 +136,14 @@ async function terminologyCheck(
     config.terminology.valueSets.map(async (valueSet) => {
       try {
         const expansion = await expandValueSet(
-          endpoints.terminologyBaseUrl,
+          resolveValueSetEndpoint(valueSet, endpoints),
           valueSet.canonical,
           undefined,
           false
         );
         return expansion.codes.length ? null : `${valueSet.key} (empty expansion)`;
       } catch (error) {
-        return `${valueSet.key} (${error instanceof Error ? error.message : "request failed"})`;
+        return `${valueSet.key} via ${valueSet.endpoint} (${error instanceof Error ? error.message : "request failed"})`;
       }
     })
   );
@@ -152,7 +159,7 @@ async function terminologyCheck(
   };
 }
 
-async function psgcCheck(
+export async function checkPsgcCompatibility(
   config: ConnectathonConfig,
   endpoints: EndpointConfig
 ): Promise<ReadinessResult> {
@@ -175,8 +182,33 @@ async function psgcCheck(
     const mismatched = [...explicitVersions].filter(
       (version) => version !== config.psgc.version
     );
+    let metadataConfirmation: FhirResource | undefined;
+    let metadataError = "";
+    if (entries.length && !explicitVersions.size) {
+      try {
+        const codeSystems = await searchResources(
+          endpoints.terminologyBaseUrl,
+          "CodeSystem",
+          new URLSearchParams({
+            url: config.codeSystems.psgc,
+            version: config.psgc.version
+          })
+        );
+        metadataConfirmation = codeSystems.find(
+          (resource) =>
+            resource.url === config.codeSystems.psgc &&
+            resource.version === config.psgc.version
+        );
+      } catch (error) {
+        metadataError = error instanceof Error ? error.message : "CodeSystem lookup failed.";
+      }
+    }
     const status: ReadinessStatus =
-      !entries.length || mismatched.length ? "fail" : explicitVersions.size ? "pass" : "warning";
+      !entries.length || mismatched.length
+        ? "fail"
+        : explicitVersions.size || metadataConfirmation
+          ? "pass"
+          : "warning";
     return {
       id: "psgc",
       label: "PSGC compatibility",
@@ -188,7 +220,9 @@ async function psgcCheck(
           ? `Configured ${config.psgc.version}; expansion reports ${mismatched.join(", ")}.`
           : explicitVersions.size
             ? `${entries.length} codes explicitly report PSGC ${config.psgc.version}.`
-            : `${entries.length} live codes returned; the server omitted entry-level versions, so verify ${config.psgc.version} with the test lead.`
+            : metadataConfirmation
+              ? `${entries.length} live codes returned; CodeSystem metadata confirms ${config.codeSystems.psgc}|${config.psgc.version}.`
+              : `${entries.length} live codes returned, but the server omitted entry-level versions and the CodeSystem version could not be confirmed${metadataError ? `: ${metadataError}` : "."}`
     };
   } catch (error) {
     return {
@@ -211,7 +245,7 @@ export async function runRemoteReadinessChecks(
     metadataCheck("tx-metadata", "Terminology CapabilityStatement", "endpoints.terminologyBaseUrl, ig.fhirVersion", endpoints.terminologyBaseUrl, config.ig.fhirVersion),
     profilesCheck(config, endpoints),
     terminologyCheck(config, endpoints),
-    psgcCheck(config, endpoints)
+    checkPsgcCompatibility(config, endpoints)
   ]);
   return [checkConfiguredUrls(config, endpoints), pheref, phCore, terminology, profiles, valueSets, psgc];
 }

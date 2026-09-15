@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { FacilityPublishControl } from "../components/FacilityPublishControl";
+import { resolveValueSetEndpoint } from "../config/connectathon.config";
 import { useAppContext } from "../context/useAppContext";
 import {
   checkConfiguredUrls,
@@ -44,7 +45,7 @@ export function ConnectathonGuide() {
         configKey: "profiles.*, identifierSystems.*, terminology.*",
         detail: bundleEntries
           ? `The active transaction Bundle contains ${bundleEntries} entries.`
-          : "Generate or continue a referral to construct a transaction Bundle."
+          : "Action required: generate a referral, complete its required fields, and open Preview to construct the transaction Bundle."
       },
       {
         id: "validation",
@@ -56,7 +57,9 @@ export function ConnectathonGuide() {
           ? validation.blocking
             ? "The latest validation has blocking fatal/error issues."
             : "The latest validation completed without blocking issues."
-          : "No completed validation exists for the active referral."
+          : activeDraftRecord
+            ? "Action required: open the referral Preview and select Validate Bundle."
+            : "Action required: generate a referral first, then validate its Bundle from Preview."
       },
       {
         id: "writes",
@@ -83,12 +86,16 @@ export function ConnectathonGuide() {
     () => [
       { key: "endpoints.pherefBaseUrl", value: endpoints.pherefBaseUrl, usage: "PHeRef metadata, Bundle $validate, referral transactions, Task reads/updates" },
       { key: "endpoints.phCoreBaseUrl", value: endpoints.phCoreBaseUrl, usage: "PH Core CapabilityStatement and StructureDefinition discovery" },
-      { key: "endpoints.terminologyBaseUrl", value: endpoints.terminologyBaseUrl, usage: "ValueSet/$expand and PSGC terminology checks" },
+      { key: "endpoints.terminologyBaseUrl", value: endpoints.terminologyBaseUrl, usage: "Default terminology and PSGC ValueSet/$expand requests" },
       { key: "ig.version", value: config.ig.version, usage: "Readiness report and terminology cache isolation" },
       { key: "ig.fhirVersion", value: config.ig.fhirVersion, usage: "CapabilityStatement compatibility check" },
       ...Object.entries(config.profiles).map(([key, value]) => ({ key: `profiles.${key}`, value, usage: "Generated resource meta.profile and StructureDefinition readiness check" })),
       ...Object.entries(config.identifierSystems).map(([key, value]) => ({ key: `identifierSystems.${key}`, value, usage: "Generated resource identifier.system" })),
-      ...config.terminology.valueSets.map((valueSet) => ({ key: `terminology.valueSets.${valueSet.key}`, value: valueSet.canonical, usage: `Live expansion for ${valueSet.label}; fallback is development-only` })),
+      ...config.terminology.valueSets.map((valueSet) => ({
+        key: `terminology.valueSets.${valueSet.key}`,
+        value: valueSet.canonical,
+        usage: `Required live expansion for ${valueSet.label} via ${valueSet.endpoint} (${resolveValueSetEndpoint(valueSet, endpoints)}); no local fallback`
+      })),
       { key: "codeSystems.psgc", value: config.codeSystems.psgc, usage: "Address PSGC Coding.system when optional extensions are enabled" },
       { key: "psgc.version", value: config.psgc.version, usage: "PSGC compatibility checks, Coding.version, and cache isolation" },
       { key: "features.includePsgcExtensions", value: String(config.features.includePsgcExtensions), usage: "Controls optional PH Core geographic Address extensions" }
@@ -143,7 +150,7 @@ export function ConnectathonGuide() {
             "Required checks pass and the ready preset is active. Validated referrals may be exchanged."
           )
         ) : (
-          "Readiness is incomplete. Resolve every warning/failure below; fallback terminology does not count as a live expansion."
+          "Readiness is incomplete. Resolve every warning/failure below; all coded choices require live server expansion."
         )}
       </section>
 
@@ -180,6 +187,12 @@ export function ConnectathonGuide() {
                 <small><code>{result.configKey}</code></small>
               </div>
               <span className={`status-badge readiness-${result.status}`}>{result.status}</span>
+              {result.id === "bundle" && !activeDraftRecord ? (
+                <Link className="button secondary" to="/referrals/new">Generate referral</Link>
+              ) : null}
+              {result.id === "validation" && activeDraftRecord ? (
+                <Link className="button secondary" to="/referrals/preview">Open Preview</Link>
+              ) : null}
             </article>
           ))}
         </div>

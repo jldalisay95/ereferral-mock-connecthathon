@@ -13,6 +13,12 @@ const task = {
   requester: { reference: "PractitionerRole/1" }
 };
 
+const liveResponse = (code: string) => ({
+  system: "https://tx.example.test/CodeSystem/live-response",
+  code,
+  display: `Live ${code}`
+});
+
 describe("Task transitions", () => {
   it.each([
     ["received", "received", "received"],
@@ -22,7 +28,12 @@ describe("Task transitions", () => {
   ] as const)(
     "maps %s to FHIR status %s and business status %s",
     (transition, status, businessCode) => {
-      const updated = applyTaskTransition(task, transition, "Synthetic remarks");
+      const updated = applyTaskTransition(
+        task,
+        transition,
+        "Synthetic remarks",
+        liveResponse(transition)
+      );
       expect(updated.status).toBe(status);
       expect(
         (updated.businessStatus as { coding: Array<{ code: string }> }).coding[0]
@@ -38,14 +49,24 @@ describe("Task transitions", () => {
     ["other-care", "in-progress"],
     ["discharged", "completed"]
   ] as const)("maps local care state %s to Task.status %s", (transition, status) => {
-    const accepted = applyTaskTransition(task, "accepted", "Accepted");
+    const accepted = applyTaskTransition(
+      task,
+      "accepted",
+      "Accepted",
+      liveResponse("accepted")
+    );
     const updated = applyTaskTransition(accepted, transition, "Care update");
     expect(updated.status).toBe(status);
     expect(updated.businessStatus).toEqual(accepted.businessStatus);
   });
 
   it("preserves businessStatus when completed", () => {
-    const accepted = applyTaskTransition(task, "accepted", "Accepted");
+    const accepted = applyTaskTransition(
+      task,
+      "accepted",
+      "Accepted",
+      liveResponse("accepted")
+    );
     const completed = applyTaskTransition(accepted, "completed", "Completed");
     expect(completed.status).toBe("completed");
     expect(completed.businessStatus).toEqual(accepted.businessStatus);
@@ -66,6 +87,12 @@ describe("Task transitions", () => {
     };
     const updated = applyTaskTransition(task, "accepted", "Accepted", coding);
     expect(updated.businessStatus).toEqual({ coding: [coding] });
+  });
+
+  it("rejects a receiving response without a live terminology coding", () => {
+    expect(() => applyTaskTransition(task, "accepted", "Accepted")).toThrow(
+      /matching live/i
+    );
   });
 
   it("requires remarks for every workflow update", () => {

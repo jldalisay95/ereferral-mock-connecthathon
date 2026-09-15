@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { CodingSelect } from "../components/CodingSelect";
 import { FormField, SelectInput, TextInput } from "../components/FormField";
-import { CLINICAL_REASON_OPTIONS } from "../config/fhir";
 import { useAppContext } from "../context/useAppContext";
 import { patientDisplayName } from "../data/patients";
 import { searchOrganizationDirectory } from "../services/organizationDirectory";
@@ -38,10 +37,32 @@ export function NewReferral() {
     "reason-for-referral-service-type"
   );
   const requestPriorities = useTerminologyValueSet("request-priority");
+  const practitionerRoles = useTerminologyValueSet("practitioner-role");
+  const administrativeGenders = useTerminologyValueSet("administrative-gender");
+  const contactRelationships = useTerminologyValueSet(
+    "patient-contact-relationship"
+  );
+  const disabilityTypes = useTerminologyValueSet("pwd-disability");
+  const hasLiveCoding = (
+    terminology: typeof referralCategories,
+    coding: { system: string; code: string } | undefined
+  ) =>
+    Boolean(
+      coding?.system &&
+        coding.code &&
+        terminology.options.some(
+          (option) =>
+            option.system === coding.system && option.code === coding.code
+        )
+    );
   const liveTerminologyPending = [
     referralCategories,
     requestedServices,
-    requestPriorities
+    requestPriorities,
+    practitionerRoles,
+    administrativeGenders,
+    contactRelationships,
+    disabilityTypes
   ].some((item) => item.requiresLiveExpansion && item.source !== "server") ||
     (referralCategories.requiresLiveExpansion &&
       !referralCategories.options.some(
@@ -56,7 +77,26 @@ export function NewReferral() {
           option.code === draft?.requestedService.code
       )) ||
     (requestPriorities.requiresLiveExpansion &&
-      !requestPriorities.options.some((option) => option.code === draft?.priority));
+      !requestPriorities.options.some((option) => option.code === draft?.priority)) ||
+    (practitionerRoles.requiresLiveExpansion &&
+      (!hasLiveCoding(practitionerRoles, draft?.referringPractitioner.role) ||
+        (draft?.receivingPractitioner
+          ? !hasLiveCoding(practitionerRoles, draft.receivingPractitioner.role)
+          : false))) ||
+    (administrativeGenders.requiresLiveExpansion &&
+      !administrativeGenders.options.some(
+        (option) => option.code === draft?.patient.gender
+      )) ||
+    (contactRelationships.requiresLiveExpansion &&
+      Boolean(draft?.patient.contactRelationship.code) &&
+      !hasLiveCoding(contactRelationships, draft?.patient.contactRelationship)) ||
+    (disabilityTypes.requiresLiveExpansion &&
+      Boolean(draft?.patient.pwdEnabled) &&
+      Boolean(
+        draft?.patient.disabilities.some(
+          (coding) => !hasLiveCoding(disabilityTypes, coding)
+        )
+      ));
 
   const patientResults = useMemo(
     () =>
@@ -172,13 +212,10 @@ export function NewReferral() {
                 }
               />
             </FormField>
-            <CodingSelect
-              label="Coded working impression"
-              value={draft.clinicalReason}
-              options={CLINICAL_REASON_OPTIONS}
-              onChange={(value) => updateSection("clinicalReason", value)}
-              hint="Local SNOMED CT demonstration list for Condition.code; configure a project ValueSet before treating it as a required live binding."
-            />
+            <p className="field-note">
+              The active IG permits free text for the clinical reason and does
+              not define a required project ValueSet for this field.
+            </p>
           </div>
           <div className="form-grid three">
             <FormField label="Observed at">
@@ -530,12 +567,6 @@ export function NewReferral() {
                 }
                 onChange={(value) => updateSection("requestedService", value)}
                 hint={`ValueSet: ${requestedServices.canonical}`}
-              />
-              <CodingSelect
-                label="Clinical reason"
-                value={draft.clinicalReason}
-                options={CLINICAL_REASON_OPTIONS}
-                onChange={(value) => updateSection("clinicalReason", value)}
               />
             </div>
             {liveTerminologyPending ? (

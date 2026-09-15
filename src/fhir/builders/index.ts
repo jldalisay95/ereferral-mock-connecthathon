@@ -45,7 +45,9 @@ const localResourceReference = (value: string) => {
   return value;
 };
 const codeable = (coding: CodingInput, text?: string) => ({
-  coding: [{ system: coding.system, code: coding.code, display: coding.display }],
+  ...(coding.system && coding.code
+    ? { coding: [{ system: coding.system, code: coding.code, display: coding.display }] }
+    : {}),
   ...(text ? { text } : {})
 });
 const iso = (value: string) => new Date(value).toISOString();
@@ -163,17 +165,11 @@ export function buildPatient(draft: ReferralDraft): FhirResource {
       ? {
           contact: [
             {
-              relationship: [
-                {
-                  coding: [
-                    {
-                      system: patient.contactRelationship.system,
-                      code: patient.contactRelationship.code,
-                      display: patient.contactRelationship.display
-                    }
-                  ]
-                }
-              ],
+              ...(patient.contactRelationship.system ===
+                "http://terminology.hl7.org/CodeSystem/v2-0131" &&
+              patient.contactRelationship.code
+                ? { relationship: [codeable(patient.contactRelationship)] }
+                : {}),
               ...(patient.contactName ? { name: { text: patient.contactName } } : {}),
               ...(patient.contactPhone
                 ? {
@@ -494,7 +490,7 @@ export function buildServiceRequest(
         text: draft.referralCategory.display
       }
     ],
-    priority: draft.priority,
+    ...(draft.priority ? { priority: draft.priority } : {}),
     code: codeable(draft.requestedService),
     subject: reference(refs.patient),
     encounter: reference(refs.encounter),

@@ -1,12 +1,9 @@
 import { useMemo, useState, type PropsWithChildren } from "react";
 import {
   assertExternalWritesAllowed,
-  CLINICAL_REASON_OPTIONS,
   CONNECTATHON_CONFIG,
   DEFAULT_ENDPOINTS,
-  IDENTIFIER_SYSTEMS,
-  REFERRAL_CATEGORY_OPTIONS,
-  REQUESTED_SERVICE_OPTIONS
+  IDENTIFIER_SYSTEMS
 } from "../config/fhir";
 import {
   DEMO_ACCOUNTS,
@@ -73,24 +70,18 @@ import type {
 } from "../types";
 import { AppContext } from "./appContextValue";
 
-const SYSTEM_TEXT = {
-  system: "urn:ietf:rfc:3986",
-  code: "unknown",
-  display: "Not specified"
-};
-
-function firstCodeable(value: unknown, fallback: typeof SYSTEM_TEXT = SYSTEM_TEXT) {
+function firstCodeable(value: unknown) {
   const source = Array.isArray(value) ? value[0] : value;
   const coding = (
     source as { coding?: Array<{ system?: string; code?: string; display?: string }>; text?: string } | undefined
   )?.coding?.[0];
   return {
-    system: coding?.system ?? fallback.system,
-    code: coding?.code ?? fallback.code,
+    system: coding?.system ?? "",
+    code: coding?.code ?? "",
     display:
       coding?.display ??
       (source as { text?: string } | undefined)?.text ??
-      fallback.display
+      ""
   };
 }
 
@@ -928,18 +919,9 @@ export function AppProvider({ children }: PropsWithChildren) {
       const status = task ? statusFromTask(task) : "requested";
       const authoredOn =
         typeof serviceRequest.authoredOn === "string" ? serviceRequest.authoredOn : now;
-      const requestedService = firstCodeable(
-        serviceRequest.code,
-        REQUESTED_SERVICE_OPTIONS[0]
-      );
-      const referralCategory = firstCodeable(
-        serviceRequest.category,
-        REFERRAL_CATEGORY_OPTIONS[0]
-      );
-      const clinicalReason = firstCodeable(
-        serviceRequest.reasonCode,
-        CLINICAL_REASON_OPTIONS[0]
-      );
+      const requestedService = firstCodeable(serviceRequest.code);
+      const referralCategory = firstCodeable(serviceRequest.category);
+      const clinicalReason = firstCodeable(serviceRequest.reasonCode);
       const priority =
         serviceRequest.priority === "routine" ||
         serviceRequest.priority === "urgent" ||
@@ -962,7 +944,7 @@ export function AppProvider({ children }: PropsWithChildren) {
           given: "Remote",
           family: "Practitioner",
           license: "",
-          role: { ...SYSTEM_TEXT, display: "Remote requester" }
+          role: firstCodeable(requesterRole?.code)
         },
         initiatingFacility: {
           name: organizationName(referringOrganization, "Remote referring facility"),

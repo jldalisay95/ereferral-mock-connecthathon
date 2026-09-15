@@ -20,7 +20,6 @@ export interface PsgcDirectory {
 }
 
 const expansionCache = new Map<string, Promise<PsgcOption[]>>();
-let snapshotPromise: Promise<Record<string, PsgcOption[]>> | null = null;
 
 interface ExpansionResponse {
   resourceType?: string;
@@ -58,11 +57,11 @@ function canonicalExpandUrl(baseUrl: string, canonical: string, count: number) {
   return `${baseUrl.replace(/\/$/, "")}/ValueSet/$expand?${params}`;
 }
 
-async function fetchExpansion(url: string, signal?: AbortSignal) {
-  const timeout = AbortSignal.timeout(10_000);
+async function fetchExpansion(url: string, timeoutMs: number) {
+  const timeout = AbortSignal.timeout(timeoutMs);
   const response = await fetch(url, {
     headers: { Accept: "application/fhir+json" },
-    signal: signal ? AbortSignal.any([signal, timeout]) : timeout
+    signal: timeout
   });
   const body = (await response.json().catch(() => null)) as
     | ExpansionResponse
@@ -95,13 +94,42 @@ async function fetchExpansion(url: string, signal?: AbortSignal) {
   return codes;
 }
 
+function waitForExpansion<T>(request: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return request;
+  if (signal.aborted) {
+    return Promise.reject(
+      signal.reason instanceof Error
+        ? signal.reason
+        : new DOMException("The PSGC request was aborted.", "AbortError")
+    );
+  }
+  return new Promise<T>((resolve, reject) => {
+    const abort = () =>
+      reject(
+        signal.reason instanceof Error
+          ? signal.reason
+          : new DOMException("The PSGC request was aborted.", "AbortError")
+      );
+    signal.addEventListener("abort", abort, { once: true });
+    request.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      }
+    );
+  });
+}
+
 async function loadExpansion(
   baseUrl: string,
   valueSetId: string,
   canonical: string,
   count: number,
-  signal?: AbortSignal,
-  allowBundledFallback = CONNECTATHON_CONFIG.preset === "participant"
+  signal?: AbortSignal
 ) {
   const key = [
     CONNECTATHON_CONFIG.preset,
@@ -109,26 +137,17 @@ async function loadExpansion(
     PSGC_VERSION,
     baseUrl,
     valueSetId,
-    canonical,
-    allowBundledFallback ? "fallback-allowed" : "live-required"
+    canonical
   ].join("|");
   if (!expansionCache.has(key)) {
-    const snapshotFallback = () =>
-      loadBundledPsgcSnapshot().then((snapshot) => {
-        const fallback = snapshot[canonical];
-        if (fallback) return fallback;
-        throw new Error(`Bundled PSGC snapshot missing ${canonical}`);
-      });
-    const request = fetchExpansion(canonicalExpandUrl(baseUrl, canonical, count), signal)
+    // Large PSGC expansions need more time than ordinary coded fields. The
+    // shared request deliberately does not use a component's abort signal:
+    // React development remounts must not poison the cache for the next load.
+    const timeoutMs = count >= 50_000 ? 90_000 : 30_000;
+    const request = fetchExpansion(canonicalExpandUrl(baseUrl, canonical, count), timeoutMs)
       .catch((error) => {
         if (error instanceof Error && error.name === "AbortError") throw error;
-        return fetchExpansion(valueSetExpandUrl(baseUrl, valueSetId, count), signal);
-      })
-      .catch(async (error) => {
-        if (!allowBundledFallback) throw error;
-        return snapshotFallback().catch(() => {
-          throw error;
-        });
+        return fetchExpansion(valueSetExpandUrl(baseUrl, valueSetId, count), timeoutMs);
       });
     expansionCache.set(
       key,
@@ -138,108 +157,62 @@ async function loadExpansion(
       })
     );
   }
-  return expansionCache.get(key)!;
-}
-
-async function loadBundledPsgcSnapshot() {
-  if (!snapshotPromise) {
-    snapshotPromise = fetch(`${import.meta.env.BASE_URL}psgc.generated.json`, {
-      headers: { Accept: "application/json" }
-    }).then(async (response) => {
-      if (!response.ok) {
-        throw new Error(`Bundled PSGC snapshot failed (${response.status})`);
-      }
-      const body = (await response.json()) as {
-        system?: string;
-        version?: string;
-        regions?: Array<{ code: string; display: string }>;
-        provinces?: Array<{ code: string; display: string }>;
-        cities?: Array<{ code: string; display: string }>;
-        barangays?: Array<{ code: string; display: string }>;
-      };
-      const system = body.system ?? PSGC_SYSTEM;
-      const version = body.version ?? PSGC_VERSION;
-      const options = (
-        rows: Array<{ code: string; display: string }> | undefined
-      ): PsgcOption[] =>
-        (rows ?? []).map((row) => ({
-          system,
-          version,
-          code: row.code,
-          display: row.display.trim()
-        }));
-      return {
-        [PSGC_VALUE_SETS.regions]: options(body.regions),
-        [PSGC_VALUE_SETS.provinces]: options(body.provinces),
-        [PSGC_VALUE_SETS.cities]: options(body.cities),
-        [PSGC_VALUE_SETS.barangays]: options(body.barangays)
-      };
-    });
-  }
-  return snapshotPromise;
+  return waitForExpansion(expansionCache.get(key)!, signal);
 }
 
 export async function loadPsgcDirectory(
   baseUrl: string,
-  signal?: AbortSignal,
-  allowBundledFallback = CONNECTATHON_CONFIG.preset === "participant"
+  signal?: AbortSignal
 ): Promise<PsgcDirectory> {
-  const [regions, provinces, cities] = await Promise.all([
-    loadExpansion(
-      baseUrl,
-      PSGC_VALUE_SET_IDS.regions,
-      PSGC_VALUE_SETS.regions,
-      100,
-      signal,
-      allowBundledFallback
-    ),
-    loadExpansion(
-      baseUrl,
-      PSGC_VALUE_SET_IDS.provinces,
-      PSGC_VALUE_SETS.provinces,
-      200,
-      signal,
-      allowBundledFallback
-    ),
-    loadExpansion(
-      baseUrl,
-      PSGC_VALUE_SET_IDS.cities,
-      PSGC_VALUE_SETS.cities,
-      2_000,
-      signal,
-      allowBundledFallback
-    )
-  ]);
+  // Some Connectathon terminology servers throttle simultaneous expansions.
+  // Load the three hierarchy levels in sequence to avoid a failing request burst.
+  const regions = await loadExpansion(
+    baseUrl,
+    PSGC_VALUE_SET_IDS.regions,
+    PSGC_VALUE_SETS.regions,
+    100,
+    signal
+  );
+  const provinces = await loadExpansion(
+    baseUrl,
+    PSGC_VALUE_SET_IDS.provinces,
+    PSGC_VALUE_SETS.provinces,
+    200,
+    signal
+  );
+  const cities = await loadExpansion(
+    baseUrl,
+    PSGC_VALUE_SET_IDS.cities,
+    PSGC_VALUE_SETS.cities,
+    2_000,
+    signal
+  );
   return { regions, provinces, cities };
 }
 
 export function loadPsgcBarangays(
   baseUrl: string,
-  signal?: AbortSignal,
-  allowBundledFallback = CONNECTATHON_CONFIG.preset === "participant"
+  signal?: AbortSignal
 ) {
   return loadExpansion(
     baseUrl,
     PSGC_VALUE_SET_IDS.barangays,
     PSGC_VALUE_SETS.barangays,
     50_000,
-    signal,
-    allowBundledFallback
+    signal
   );
 }
 
 export function loadAllPsgc(
   baseUrl: string,
-  signal?: AbortSignal,
-  allowBundledFallback = CONNECTATHON_CONFIG.preset === "participant"
+  signal?: AbortSignal
 ) {
   return loadExpansion(
     baseUrl,
     PSGC_VALUE_SET_IDS.all,
     PSGC_VALUE_SETS.all,
     50_000,
-    signal,
-    allowBundledFallback
+    signal
   );
 }
 
@@ -272,5 +245,4 @@ export function barangaysForCity(
 
 export function clearPsgcDirectoryCache() {
   expansionCache.clear();
-  snapshotPromise = null;
 }

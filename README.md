@@ -256,11 +256,17 @@ The ready preset enables the workflow capability, but a referral still cannot
 be submitted until the latest `$validate` result is non-blocking. Admin may use
 Demo mode for local workflow simulation only while the ready preset is active.
 
-In ready mode, configured terminology fields and PSGC addresses are populated
+In both presets, configured terminology fields and PSGC addresses are populated
 only from live `ValueSet/$expand` responses. Failed or empty expansions block
-the affected registration, patient, or referral action. Participant mode may
-show its documented fallback lists for form development, but those results
-never satisfy readiness.
+the affected registration, patient, or referral action. The application does
+not provide bundled terminology or PSGC fallback choices.
+
+Each entry in `CONNECTATHON_CONFIG.terminology.valueSets` also declares an
+`endpoint`: `pherefBaseUrl`, `phCoreBaseUrl`, or `terminologyBaseUrl`. This lets
+one ValueSet expand from the PHeRef CDR while another expands from the dedicated
+terminology server. The `canonical` continues to identify the ValueSet and must
+not be replaced with the server URL. The Terminology Check and Connectathon
+Guide show the effective source used by every configured ValueSet.
 
 ## Notifications, timeline, and print
 

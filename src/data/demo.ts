@@ -25,22 +25,14 @@ export function createDemoDraft(
     initiatingFacility: structuredClone(referringFacility.organization),
     receivingFacility: structuredClone(receivingFacility.organization),
     patient: structuredClone(patientRecord.patient),
-    referralCategory: {
-      system: "http://snomed.info/sct",
-      code: "73770003",
-      display: "Emergency"
-    },
-    priority: "urgent",
-    requestedService: {
-      system: "http://snomed.info/sct",
-      code: "11429006",
-      display: "Consultation"
-    },
-    clinicalReason: {
-      system: "http://snomed.info/sct",
-      code: "59621000",
-      display: "Essential hypertension"
-    },
+    // Selectable coded values intentionally start empty. The UI fills these
+    // only from successful live ValueSet expansions for the active preset.
+    referralCategory: { system: "", code: "", display: "" },
+    priority: "",
+    requestedService: { system: "", code: "", display: "" },
+    // The active IG permits a text-only clinical reason and does not bind this
+    // project field to a required ValueSet.
+    clinicalReason: { system: "", code: "", display: "" },
     referralNarrative:
       "Synthetic urgent referral for specialist assessment and higher-level monitoring.",
     remarks: "Please advise the patient and referring facility of the receiving response.",

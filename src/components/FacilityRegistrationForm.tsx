@@ -23,14 +23,14 @@ export function FacilityRegistrationForm({
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const practitionerRoles = useTerminologyValueSet("practitioner-role");
+  const liveRoleUnavailable = practitionerRoles.source !== "server";
   const liveRoleRequired =
-    practitionerRoles.requiresLiveExpansion &&
-    (practitionerRoles.source !== "server" ||
-      !practitionerRoles.options.some(
-        (option) =>
-          option.system === registration.practitionerRole.system &&
-          option.code === registration.practitionerRole.code
-      ));
+    liveRoleUnavailable ||
+    !practitionerRoles.options.some(
+      (option) =>
+        option.system === registration.practitionerRole.system &&
+        option.code === registration.practitionerRole.code
+    );
 
   const update = <K extends keyof FacilityRegistrationInput>(
     key: K,
@@ -128,7 +128,7 @@ export function FacilityRegistrationForm({
           label="Practitioner role"
           value={registration.practitionerRole}
           options={practitionerRoles.options}
-          disabled={liveRoleRequired}
+          disabled={liveRoleUnavailable}
           onChange={(value) => update("practitionerRole", value)}
           hint={`ValueSet: ${practitionerRoles.canonical}`}
         />
@@ -166,9 +166,9 @@ export function FacilityRegistrationForm({
         This creates a synthetic account in this browser only. Do not use a real
         password, credential, facility secret, or patient information.
       </div>
-      {liveRoleRequired ? (
+      {liveRoleUnavailable ? (
         <div className="notice warning" role="alert">
-          Ready mode requires a live Practitioner Role expansion from the
+          Both presets require a live Practitioner Role expansion from the
           terminology server. {practitionerRoles.error ?? "Loading ValueSet..."}
         </div>
       ) : null}
