@@ -38,8 +38,8 @@ describe("PHeRef builders", () => {
     )[0];
     expect(contact.relationship[0].coding[0]).toEqual(
       expect.objectContaining({
-        system: "http://terminology.hl7.org/CodeSystem/v2-0131",
-        code: "N"
+        system: "http://terminology.hl7.org/CodeSystem/v3-RoleCode",
+        code: "NOK"
       })
     );
   });

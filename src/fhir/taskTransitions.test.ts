@@ -58,6 +58,16 @@ describe("Task transitions", () => {
     expect(isReceivingResponseTransition("other-care")).toBe(false);
   });
 
+  it("preserves receiving response coding supplied by live terminology", () => {
+    const coding = {
+      system: "https://tx.example.test/CodeSystem/live-response",
+      code: "accepted",
+      display: "Server-supplied acceptance label"
+    };
+    const updated = applyTaskTransition(task, "accepted", "Accepted", coding);
+    expect(updated.businessStatus).toEqual({ coding: [coding] });
+  });
+
   it("requires remarks for every workflow update", () => {
     expect(() => applyTaskTransition(task, "received", "")).toThrow(
       /remarks are required/i

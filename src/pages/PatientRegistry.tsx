@@ -2,10 +2,6 @@ import { useMemo, useState } from "react";
 import { CodingMultiSelect, CodingSelect } from "../components/CodingSelect";
 import { FormField, SelectInput, TextInput } from "../components/FormField";
 import { PsgcAddressFields } from "../components/PsgcAddressFields";
-import {
-  PWD_DISABILITY_OPTIONS,
-  RELATIONSHIP_OPTIONS
-} from "../config/fhir";
 import { useAppContext } from "../context/useAppContext";
 import { createEmptyPatient, patientDisplayName } from "../data/patients";
 import {
@@ -13,6 +9,7 @@ import {
   searchPatients
 } from "../services/patientRegistry";
 import type { PatientInput, PatientRecord, RegistryType } from "../types";
+import { useTerminologyValueSet } from "../hooks/useTerminologyValueSet";
 
 const emptySearch = { given: "", family: "", birthDate: "", identifier: "" };
 
@@ -29,6 +26,32 @@ export function PatientRegistry() {
   const [registryType, setRegistryType] = useState<RegistryType>("registered");
   const [notes, setNotes] = useState("");
   const [message, setMessage] = useState("");
+  const genders = useTerminologyValueSet("administrative-gender");
+  const relationships = useTerminologyValueSet("ereferral-relationship-type");
+  const disabilities = useTerminologyValueSet("pwd-disability");
+  const requiredTerminology = patient.pwdEnabled
+    ? [genders, relationships, disabilities]
+    : [genders, relationships];
+  const liveTerminologyPending = requiredTerminology.some(
+    (item) => item.requiresLiveExpansion && item.source !== "server"
+  ) ||
+    (genders.requiresLiveExpansion &&
+      !genders.options.some((option) => option.code === patient.gender)) ||
+    (relationships.requiresLiveExpansion &&
+      !relationships.options.some(
+        (option) =>
+          option.system === patient.contactRelationship.system &&
+          option.code === patient.contactRelationship.code
+      )) ||
+    (patient.pwdEnabled &&
+      disabilities.requiresLiveExpansion &&
+      patient.disabilities.some(
+        (selected) =>
+          !disabilities.options.some(
+            (option) =>
+              option.system === selected.system && option.code === selected.code
+          )
+      ));
 
   const results = useMemo(
     () => searchPatients(scopedPatients, search),
@@ -258,10 +281,14 @@ export function PatientRegistry() {
           </FormField>
           <FormField label="Administrative gender">
             <SelectInput value={patient.gender} onChange={(event) => update("gender", event.target.value as PatientInput["gender"])}>
-              <option value="unknown">Unknown</option>
-              <option value="female">Female</option>
-              <option value="male">Male</option>
-              <option value="other">Other</option>
+              <option value="" disabled>
+                {genders.status === "loading" ? "Loading live genders..." : "Select gender"}
+              </option>
+              {genders.options.map((option) => (
+                <option value={option.code} key={`${option.system}|${option.code}`}>
+                  {option.display}
+                </option>
+              ))}
             </SelectInput>
           </FormField>
           <FormField label="Birth date">
@@ -282,8 +309,10 @@ export function PatientRegistry() {
           <CodingSelect
             label="Contact relationship"
             value={patient.contactRelationship}
-            options={RELATIONSHIP_OPTIONS}
+            options={relationships.options}
+            disabled={relationships.requiresLiveExpansion && relationships.source !== "server"}
             onChange={(value) => update("contactRelationship", value)}
+            hint={`ValueSet: ${relationships.canonical}`}
           />
           <FormField label="Next of kin phone">
             <TextInput value={patient.contactPhone} onChange={(event) => update("contactPhone", event.target.value)} />
@@ -319,16 +348,23 @@ export function PatientRegistry() {
             <CodingMultiSelect
               label="Disability types"
               values={patient.disabilities}
-              options={PWD_DISABILITY_OPTIONS}
+              options={disabilities.options}
+              disabled={disabilities.requiresLiveExpansion && disabilities.source !== "server"}
               onChange={(values) => update("disabilities", values)}
-              hint="The PHeReF PWD extension permits more than one disability type."
+              hint={`The PHeReF PWD extension permits more than one disability type. ValueSet: ${disabilities.canonical}`}
             />
           </div>
         ) : null}
         <FormField label="Registry notes">
           <textarea value={notes} onChange={(event) => setNotes(event.target.value)} />
         </FormField>
-        <button type="submit">Save patient</button>
+        {liveTerminologyPending ? (
+          <div className="notice warning" role="alert">
+            Ready mode requires successful live ValueSet expansions from the
+            configured terminology server. Bundled terminology is not used.
+          </div>
+        ) : null}
+        <button type="submit" disabled={liveTerminologyPending}>Save patient</button>
       </form>
     </div>
   );

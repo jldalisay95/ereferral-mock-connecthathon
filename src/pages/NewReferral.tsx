@@ -2,17 +2,13 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { CodingSelect } from "../components/CodingSelect";
 import { FormField, SelectInput, TextInput } from "../components/FormField";
-import {
-  CLINICAL_REASON_OPTIONS,
-  REFERRAL_CATEGORY_OPTIONS,
-  REFERRAL_PRIORITY_OPTIONS,
-  REQUESTED_SERVICE_OPTIONS
-} from "../config/fhir";
+import { CLINICAL_REASON_OPTIONS } from "../config/fhir";
 import { useAppContext } from "../context/useAppContext";
 import { patientDisplayName } from "../data/patients";
 import { searchOrganizationDirectory } from "../services/organizationDirectory";
 import { searchPatients } from "../services/patientRegistry";
 import type { OrganizationInput, ReferralDraft } from "../types";
+import { useTerminologyValueSet } from "../hooks/useTerminologyValueSet";
 
 type Section = keyof ReferralDraft;
 
@@ -37,6 +33,30 @@ export function NewReferral() {
   const [organizationSearchStatus, setOrganizationSearchStatus] = useState<
     "idle" | "loading" | "error"
   >("idle");
+  const referralCategories = useTerminologyValueSet("referral-category");
+  const requestedServices = useTerminologyValueSet(
+    "reason-for-referral-service-type"
+  );
+  const requestPriorities = useTerminologyValueSet("request-priority");
+  const liveTerminologyPending = [
+    referralCategories,
+    requestedServices,
+    requestPriorities
+  ].some((item) => item.requiresLiveExpansion && item.source !== "server") ||
+    (referralCategories.requiresLiveExpansion &&
+      !referralCategories.options.some(
+        (option) =>
+          option.system === draft?.referralCategory.system &&
+          option.code === draft?.referralCategory.code
+      )) ||
+    (requestedServices.requiresLiveExpansion &&
+      !requestedServices.options.some(
+        (option) =>
+          option.system === draft?.requestedService.system &&
+          option.code === draft?.requestedService.code
+      )) ||
+    (requestPriorities.requiresLiveExpansion &&
+      !requestPriorities.options.some((option) => option.code === draft?.priority));
 
   const patientResults = useMemo(
     () =>
@@ -157,7 +177,7 @@ export function NewReferral() {
               value={draft.clinicalReason}
               options={CLINICAL_REASON_OPTIONS}
               onChange={(value) => updateSection("clinicalReason", value)}
-              hint="Uses the PHeReF clinical reason value set for the referenced Condition."
+              hint="Local SNOMED CT demonstration list for Condition.code; configure a project ValueSet before treating it as a required live binding."
             />
           </div>
           <div className="form-grid three">
@@ -475,7 +495,12 @@ export function NewReferral() {
                     )
                   }
                 >
-                  {REFERRAL_PRIORITY_OPTIONS.map((option) => (
+                  <option value="" disabled>
+                    {requestPriorities.status === "loading"
+                      ? "Loading live priorities..."
+                      : "Select priority"}
+                  </option>
+                  {requestPriorities.options.map((option) => (
                     <option value={option.code} key={option.code}>
                       {option.display}
                     </option>
@@ -487,14 +512,24 @@ export function NewReferral() {
               <CodingSelect
                 label="Referral category"
                 value={draft.referralCategory}
-                options={REFERRAL_CATEGORY_OPTIONS}
+                options={referralCategories.options}
+                disabled={
+                  referralCategories.requiresLiveExpansion &&
+                  referralCategories.source !== "server"
+                }
                 onChange={(value) => updateSection("referralCategory", value)}
+                hint={`ValueSet: ${referralCategories.canonical}`}
               />
               <CodingSelect
                 label="Requested service"
                 value={draft.requestedService}
-                options={REQUESTED_SERVICE_OPTIONS}
+                options={requestedServices.options}
+                disabled={
+                  requestedServices.requiresLiveExpansion &&
+                  requestedServices.source !== "server"
+                }
                 onChange={(value) => updateSection("requestedService", value)}
+                hint={`ValueSet: ${requestedServices.canonical}`}
               />
               <CodingSelect
                 label="Clinical reason"
@@ -503,6 +538,13 @@ export function NewReferral() {
                 onChange={(value) => updateSection("clinicalReason", value)}
               />
             </div>
+            {liveTerminologyPending ? (
+              <div className="notice warning" role="alert">
+                Ready mode requires successful live ValueSet expansions from
+                the configured terminology server. Bundled terminology is not
+                used. Check the Connectathon Guide if a field remains disabled.
+              </div>
+            ) : null}
             <div className="form-grid">
               <FormField label="Referral narrative">
                 <textarea
@@ -559,7 +601,14 @@ export function NewReferral() {
               Back
             </button>
             <span>Draft saved locally - synthetic data only</span>
-            <Link className="button" to="/referrals/preview">
+            <Link
+              className={`button${liveTerminologyPending ? " disabled" : ""}`}
+              aria-disabled={liveTerminologyPending}
+              onClick={(event) => {
+                if (liveTerminologyPending) event.preventDefault();
+              }}
+              to="/referrals/preview"
+            >
               Preview and validate
             </Link>
           </div>

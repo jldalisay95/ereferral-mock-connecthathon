@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { VALUE_SETS } from "../config/fhir";
+import { CONNECTATHON_CONFIG } from "../config/connectathon.config";
 import { useAppContext } from "../context/useAppContext";
 import { expandValueSet } from "../services/terminologyClient";
 import type { CodingInput } from "../types";
@@ -27,11 +28,14 @@ export function TerminologyCheck() {
         [key]: { status: "success", codes: result.codes }
       }));
     } catch (error) {
+      const fallbackAllowed = CONNECTATHON_CONFIG.preset === "participant";
       setResults((current) => ({
         ...current,
         [key]: {
           status: "error",
-          codes: fallbackOptions.map((code) => ({ ...code })),
+          codes: fallbackAllowed
+            ? fallbackOptions.map((code) => ({ ...code }))
+            : [],
           error: error instanceof Error ? error.message : "Expansion failed."
         }
       }));
@@ -54,6 +58,11 @@ export function TerminologyCheck() {
             <p className="eyebrow">Use Case 0</p>
             <h2>Terminology preparation</h2>
             <p>Expansions are cached for this browser session.</p>
+            <p>
+              Requests are read-only FHIR <code>ValueSet/$expand</code> calls.
+              This application never creates, updates, or deletes terminology
+              server resources.
+            </p>
           </div>
           <button type="button" onClick={expandAll}>Expand all value sets</button>
         </div>
@@ -74,8 +83,10 @@ export function TerminologyCheck() {
             {result.status === "error" ? (
               <div className="notice warning">
                 <strong>Terminology server unavailable for this expansion.</strong>{" "}
-                {result.error} The application continues to use its bundled IG
-                value set options; manual code entry is not enabled.
+                {result.error}{" "}
+                {CONNECTATHON_CONFIG.preset === "participant"
+                  ? "Participant mode is showing its bundled development options; manual code entry is not enabled."
+                  : "Ready mode does not permit bundled terminology. Resolve the configured terminology endpoint or canonical URL before continuing."}
               </div>
             ) : null}
             {result.codes.length ? (

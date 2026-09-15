@@ -20,6 +20,11 @@ safe by default.
 | Participant Starter (default) | `npm run dev` | Remote reads, terminology, Bundle preview, and `$validate`; all external writes are blocked at the FHIR client boundary |
 | Connectathon Ready | `npm run dev:ready` | Validated Organization publishing plus the send, receive, and Task-update workflow after successful non-blocking validation |
 
+Connectathon Ready requires successful live `$expand` responses for configured
+FHIR and PSGC ValueSets. It never substitutes bundled terminology. All
+terminology requests are read-only; the app does not modify CodeSystem or
+ValueSet resources on the terminology server.
+
 Do not change branches to graduate. Fork the repository, edit
 [`src/config/connectathon.config.ts`](src/config/connectathon.config.ts), use the
 in-app **Connectathon Guide**, and explicitly restart with the ready command.
@@ -250,6 +255,12 @@ service boundary. `$validate` remains permitted because it is non-mutating.
 The ready preset enables the workflow capability, but a referral still cannot
 be submitted until the latest `$validate` result is non-blocking. Admin may use
 Demo mode for local workflow simulation only while the ready preset is active.
+
+In ready mode, configured terminology fields and PSGC addresses are populated
+only from live `ValueSet/$expand` responses. Failed or empty expansions block
+the affected registration, patient, or referral action. Participant mode may
+show its documented fallback lists for form development, but those results
+never satisfy readiness.
 
 ## Notifications, timeline, and print
 

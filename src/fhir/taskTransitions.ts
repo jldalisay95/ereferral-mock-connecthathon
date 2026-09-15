@@ -1,5 +1,6 @@
 import type {
   CareStatus,
+  CodingInput,
   FhirResource,
   ReceivingResponse,
   TaskTransition
@@ -39,7 +40,8 @@ export function taskStatusForTransition(transition: TaskTransition) {
 export function applyTaskTransition(
   task: FhirResource,
   transition: TaskTransition,
-  note: string
+  note: string,
+  receivingResponseCoding?: CodingInput
 ): FhirResource {
   if (!note.trim()) {
     throw new Error("Remarks are required for every workflow update.");
@@ -53,17 +55,19 @@ export function applyTaskTransition(
       : task.note
   };
   if (isReceivingResponseTransition(transition)) {
+    const coding =
+      receivingResponseCoding?.code === transition
+        ? { ...receivingResponseCoding }
+        : {
+            system: WORKFLOW_SYSTEM,
+            code: transition,
+            display:
+              transition === "referred-onward"
+                ? "Referred onward"
+                : transition[0].toUpperCase() + transition.slice(1)
+          };
     next.businessStatus = {
-      coding: [
-        {
-          system: WORKFLOW_SYSTEM,
-          code: transition,
-          display:
-            transition === "referred-onward"
-              ? "Referred onward"
-              : transition[0].toUpperCase() + transition.slice(1)
-        }
-      ]
+      coding: [coding]
     };
   }
   if (transition === "rejected") next.statusReason = { text: note.trim() };

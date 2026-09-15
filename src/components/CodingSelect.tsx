@@ -10,20 +10,31 @@ export function CodingSelect({
   value,
   options,
   onChange,
-  hint
+  hint,
+  disabled = false,
+  required = true
 }: {
   label: string;
   value: CodingInput;
   options: readonly CodingInput[];
   onChange: (value: CodingInput) => void;
   hint?: string;
+  disabled?: boolean;
+  required?: boolean;
 }) {
+  const selectedValue = options.some(
+    (option) => optionValue(option) === optionValue(value)
+  )
+    ? optionValue(value)
+    : "";
   return (
     <fieldset className="coding-fields">
       <legend>{label}</legend>
       <FormField label={label} hint={hint}>
         <SelectInput
-          value={optionValue(value)}
+          value={selectedValue}
+          disabled={disabled}
+          required={required}
           onChange={(event) => {
             const selected = options.find(
               (option) => optionValue(option) === event.target.value
@@ -31,6 +42,9 @@ export function CodingSelect({
             if (selected) onChange({ ...selected });
           }}
         >
+          <option value="">
+            {disabled ? "Live terminology unavailable" : "Select a code"}
+          </option>
           {options.map((option) => (
             <option value={optionValue(option)} key={optionValue(option)}>
               {option.display}
@@ -38,9 +52,11 @@ export function CodingSelect({
           ))}
         </SelectInput>
       </FormField>
-      <small>
-        <code>{value.system}</code> | <code>{value.code}</code>
-      </small>
+      {selectedValue ? (
+        <small>
+          <code>{value.system}</code> | <code>{value.code}</code>
+        </small>
+      ) : null}
     </fieldset>
   );
 }
@@ -50,13 +66,15 @@ export function CodingMultiSelect({
   values,
   options,
   onChange,
-  hint
+  hint,
+  disabled = false
 }: {
   label: string;
   values: CodingInput[];
   options: readonly CodingInput[];
   onChange: (values: CodingInput[]) => void;
   hint?: string;
+  disabled?: boolean;
 }) {
   const selected = new Set(values.map(optionValue));
   return (
@@ -70,6 +88,7 @@ export function CodingMultiSelect({
             <label className="choice-row" key={key}>
               <input
                 type="checkbox"
+                disabled={disabled}
                 checked={selected.has(key)}
                 onChange={(event) =>
                   onChange(

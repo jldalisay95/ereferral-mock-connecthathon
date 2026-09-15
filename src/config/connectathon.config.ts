@@ -186,11 +186,16 @@ const CLINICAL_REASON_OPTIONS = [
 ] as const;
 
 const RELATIONSHIP_OPTIONS = [
-  coding("http://terminology.hl7.org/CodeSystem/v2-0131", "N", "Next-of-Kin"),
-  coding("http://terminology.hl7.org/CodeSystem/v2-0131", "C", "Emergency Contact"),
-  coding("http://terminology.hl7.org/CodeSystem/v2-0131", "E", "Employer"),
-  coding("http://terminology.hl7.org/CodeSystem/v2-0131", "I", "Insurance Company"),
-  coding("http://terminology.hl7.org/CodeSystem/v2-0131", "U", "Unknown")
+  coding("http://terminology.hl7.org/CodeSystem/v3-RoleCode", "NOK", "Next of Kin"),
+  coding("http://terminology.hl7.org/CodeSystem/v3-RoleCode", "ECON", "Emergency Contact"),
+  coding("http://terminology.hl7.org/CodeSystem/v3-RoleCode", "GUARD", "Guardian"),
+  coding("http://terminology.hl7.org/CodeSystem/v3-RoleCode", "FAMMEMB", "Family Member"),
+  coding("http://terminology.hl7.org/CodeSystem/v3-RoleCode", "PRN", "Parent"),
+  coding("http://terminology.hl7.org/CodeSystem/v3-RoleCode", "FTH", "Father"),
+  coding("http://terminology.hl7.org/CodeSystem/v3-RoleCode", "MTH", "Mother"),
+  coding("http://terminology.hl7.org/CodeSystem/v3-RoleCode", "SPS", "Spouse"),
+  coding("http://terminology.hl7.org/CodeSystem/v3-RoleCode", "CHILD", "Child"),
+  coding("http://terminology.hl7.org/CodeSystem/v3-RoleCode", "FRND", "Friend")
 ] as const;
 
 const PWD_DISABILITY_OPTIONS = [
@@ -219,9 +224,17 @@ const PRACTITIONER_ROLE_OPTIONS = [
   coding("https://fhir.doh.gov.ph/phcore/CodeSystem/PHCW", "PCW", "Primary Care Worker")
 ] as const;
 
+const RECEIVING_RESPONSE_OPTIONS = [
+  coding("https://fhir.doh.gov.ph/pheref/CodeSystem/ereferral-receiving-response", "received", "Received"),
+  coding("https://fhir.doh.gov.ph/pheref/CodeSystem/ereferral-receiving-response", "accepted", "Accepted"),
+  coding("https://fhir.doh.gov.ph/pheref/CodeSystem/ereferral-receiving-response", "rejected", "Rejected"),
+  coding("https://fhir.doh.gov.ph/pheref/CodeSystem/ereferral-receiving-response", "referred-onward", "Referred onward")
+] as const;
+
 const REFERRAL_PRIORITY_OPTIONS: ReadonlyArray<{ code: RequestPriority; display: string }> = [
   { code: "routine", display: "Routine" },
   { code: "urgent", display: "Urgent" },
+  { code: "asap", display: "ASAP" },
   { code: "stat", display: "STAT" }
 ];
 
@@ -251,6 +264,18 @@ const PROJECT_VALUE_SETS: readonly ConformanceValueSet[] = [
     label: "PWD Disability Type",
     canonical: "https://fhir.doh.gov.ph/pheref/ValueSet/pwd-disability-type-vs",
     fallbackOptions: PWD_DISABILITY_OPTIONS
+  },
+  {
+    key: "ereferral-relationship-type",
+    label: "eReferral Relationship Type",
+    canonical: "https://fhir.doh.gov.ph/pheref/ValueSet/ereferral-relationship-type",
+    fallbackOptions: RELATIONSHIP_OPTIONS
+  },
+  {
+    key: "ereferral-receiving-response",
+    label: "eReferral Receiving Facility Response",
+    canonical: "https://fhir.doh.gov.ph/pheref/ValueSet/ereferral-receiving-response",
+    fallbackOptions: RECEIVING_RESPONSE_OPTIONS
   }
 ];
 
@@ -266,6 +291,14 @@ const STANDARD_FHIR_VALUE_SETS: readonly ConformanceValueSet[] = [
       coding("http://hl7.org/fhir/administrative-gender", "other", "Other"),
       coding("http://hl7.org/fhir/administrative-gender", "unknown", "Unknown")
     ]
+  },
+  {
+    key: "request-priority",
+    label: "Request Priority",
+    canonical: "http://hl7.org/fhir/ValueSet/request-priority",
+    fallbackOptions: REFERRAL_PRIORITY_OPTIONS.map((option) =>
+      coding("http://hl7.org/fhir/request-priority", option.code, option.display)
+    )
   },
   {
     key: "task-status",

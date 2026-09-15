@@ -78,7 +78,7 @@ describe("PSGC directory", () => {
     );
   });
 
-  it("loads controlled PSGC value sets and trims server display whitespace", async () => {
+  it("loads controlled PSGC value sets without modifying server display text", async () => {
     const directory = await loadPsgcDirectory("https://tx.example.test/fhir");
     const barangays = await loadPsgcBarangays(
       "https://tx.example.test/fhir"
@@ -86,11 +86,11 @@ describe("PSGC directory", () => {
     expect(directory.cities[1]).toEqual(
       expect.objectContaining({
         code: "1206306000",
-        display: "City of Koronadal",
+        display: "City of Koronadal ",
         version: PSGC_VERSION
       })
     );
-    expect(barangays[1].display).toBe("Zone III");
+    expect(barangays[1].display).toBe("Zone III ");
     expect(fetch).toHaveBeenCalledWith(
       `https://tx.example.test/fhir/ValueSet/$expand?url=${encodeURIComponent(
         PSGC_VALUE_SETS.regions
@@ -124,7 +124,11 @@ describe("PSGC directory", () => {
       } as Response;
     });
 
-    const directory = await loadPsgcDirectory("https://tx.example.test/fhir");
+    const directory = await loadPsgcDirectory(
+      "https://tx.example.test/fhir",
+      undefined,
+      true
+    );
 
     expect(directory.regions[0].version).toBe(PSGC_VERSION);
     expect(directory.regions[0].version).not.toBe("2Q-2026");
@@ -157,7 +161,11 @@ describe("PSGC directory", () => {
   });
 
   it("filters dependent province, city, and barangay choices by PSGC hierarchy", async () => {
-    const directory = await loadPsgcDirectory("https://tx.example.test/fhir");
+    const directory = await loadPsgcDirectory(
+      "https://tx.example.test/fhir",
+      undefined,
+      true
+    );
     const barangays = await loadPsgcBarangays(
       "https://tx.example.test/fhir"
     );
@@ -202,7 +210,11 @@ describe("PSGC directory", () => {
         throw new TypeError("Failed to fetch");
       })
     );
-    const directory = await loadPsgcDirectory("https://tx.example.test/fhir");
+    const directory = await loadPsgcDirectory(
+      "https://tx.example.test/fhir",
+      undefined,
+      true
+    );
     expect(directory.regions).toHaveLength(2);
     expect(directory.cities[1].code).toBe("1206306000");
   });
@@ -229,10 +241,27 @@ describe("PSGC directory", () => {
         throw new DOMException("Aborted", "AbortError");
       })
     );
-    const directory = await loadPsgcDirectory("https://tx.example.test/fhir");
+    const directory = await loadPsgcDirectory(
+      "https://tx.example.test/fhir",
+      undefined,
+      true
+    );
     expect(directory.provinces.map((option) => option.code)).toEqual([
       "0600400000",
       "1206300000"
     ]);
+  });
+
+  it("does not read the bundled PSGC snapshot when live terminology is required", async () => {
+    clearPsgcDirectoryCache();
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+
+    await expect(
+      loadPsgcDirectory("https://tx.example.test/fhir", undefined, false)
+    ).rejects.toThrow("Failed to fetch");
+    expect(fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("psgc.generated.json"),
+      expect.anything()
+    );
   });
 });

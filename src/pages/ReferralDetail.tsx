@@ -7,6 +7,14 @@ import { ValidationPanel } from "../components/ValidationPanel";
 import { useAppContext } from "../context/useAppContext";
 import { findResource } from "../services/demoFhir";
 import type { ReferralRecord, TaskTransition } from "../types";
+import { useTerminologyValueSet } from "../hooks/useTerminologyValueSet";
+
+const receivingResponseCodes: TaskTransition[] = [
+  "received",
+  "accepted",
+  "rejected",
+  "referred-onward"
+];
 
 function formatDateTime(value: unknown) {
   if (typeof value !== "string") return "-";
@@ -61,6 +69,14 @@ export function ReferralDetail() {
   const [forwardingFacilityId, setForwardingFacilityId] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const receivingResponses = useTerminologyValueSet(
+    "ereferral-receiving-response"
+  );
+  const isReceivingResponse = receivingResponseCodes.includes(transition);
+  const liveResponseRequired =
+    isReceivingResponse &&
+    receivingResponses.requiresLiveExpansion &&
+    receivingResponses.source !== "server";
 
   useEffect(() => {
     if (id) markReferralNotificationsRead(id);
@@ -98,7 +114,10 @@ export function ReferralDetail() {
         referralRecord.id,
         transition,
         note,
-        transition === "referred-onward" ? forwardingFacilityId : undefined
+        transition === "referred-onward" ? forwardingFacilityId : undefined,
+        isReceivingResponse
+          ? receivingResponses.options.find((option) => option.code === transition)
+          : undefined
       );
       setMessage(`Referral updated to ${updated.careStatus ?? updated.status}.`);
       setNote("");
@@ -245,10 +264,13 @@ export function ReferralDetail() {
                   setTransition(event.target.value as TaskTransition)
                 }
               >
-                <option value="received">Mark received</option>
-                <option value="accepted">Accept referral</option>
-                <option value="rejected">Reject referral</option>
-                <option value="referred-onward">Refer onward</option>
+                {receivingResponses.options
+                  .filter((option) => receivingResponseCodes.includes(option.code as TaskTransition))
+                  .map((option) => (
+                    <option value={option.code} key={`${option.system}|${option.code}`}>
+                      {option.display}
+                    </option>
+                  ))}
                 <option value="arrived">Mark arrived</option>
                 <option value="admitted">Admitted</option>
                 <option value="er-observation">ER observation</option>
@@ -287,12 +309,19 @@ export function ReferralDetail() {
               onClick={updateStatus}
               disabled={
                 loading ||
+                liveResponseRequired ||
                 !note.trim() ||
                 (transition === "referred-onward" && !forwardingFacilityId)
               }
             >
               {loading ? "Updating..." : "Update referral status"}
             </button>
+            {liveResponseRequired ? (
+              <div className="notice warning" role="alert">
+                Ready mode requires the live Receiving Facility Response
+                ValueSet. {receivingResponses.error ?? "Loading ValueSet..."}
+              </div>
+            ) : null}
           </div>
         ) : assignedUserCanUpdate ? (
           <div className="notice warning">

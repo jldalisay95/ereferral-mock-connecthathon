@@ -116,6 +116,11 @@ export function ConnectathonGuide() {
             defaults, validate against the active IG, then deliberately start the
             ready preset. This page never enables writes automatically.
           </p>
+          <p>
+            Ready mode populates coded fields only from live, read-only
+            <code> ValueSet/$expand</code> requests. It never uploads or changes
+            CodeSystem or ValueSet resources on the terminology server.
+          </p>
         </div>
         <div className="quick-actions">
           <button type="button" onClick={runChecks} disabled={checking}>

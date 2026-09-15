@@ -1,6 +1,7 @@
 import { createContext } from "react";
 import type { ConnectathonConfig } from "../config/connectathon.config";
 import type {
+  CodingInput,
   AppSettings,
   FacilityAccount,
   FacilityDefinition,
@@ -63,7 +64,8 @@ export interface AppContextValue {
     referralId: string,
     transition: TaskTransition,
     note: string,
-    forwardingFacilityId?: string
+    forwardingFacilityId?: string,
+    receivingResponseCoding?: CodingInput
   ) => Promise<ReferralRecord>;
   refreshReferral: (referralId: string) => Promise<ReferralRecord>;
   refreshLiveIncomingReferrals: () => Promise<number>;

@@ -74,7 +74,7 @@ async function fetchExpansion(url: string, signal?: AbortSignal) {
       }`
     );
   }
-  return (body?.expansion?.contains ?? []).flatMap((item) =>
+  const codes = (body?.expansion?.contains ?? []).flatMap((item) =>
     item.code
       ? [
           {
@@ -84,11 +84,15 @@ async function fetchExpansion(url: string, signal?: AbortSignal) {
             // version can override the configured PSGC CodeSystem version.
             version: item.version ?? PSGC_VERSION,
             code: item.code,
-            display: (item.display ?? item.code).trim()
+            display: item.display ?? item.code
           }
         ]
       : []
   );
+  if (!codes.length) {
+    throw new Error(`PSGC terminology expansion returned no codes from ${url}.`);
+  }
+  return codes;
 }
 
 async function loadExpansion(
@@ -96,7 +100,8 @@ async function loadExpansion(
   valueSetId: string,
   canonical: string,
   count: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  allowBundledFallback = CONNECTATHON_CONFIG.preset === "participant"
 ) {
   const key = [
     CONNECTATHON_CONFIG.preset,
@@ -104,7 +109,8 @@ async function loadExpansion(
     PSGC_VERSION,
     baseUrl,
     valueSetId,
-    canonical
+    canonical,
+    allowBundledFallback ? "fallback-allowed" : "live-required"
   ].join("|");
   if (!expansionCache.has(key)) {
     const snapshotFallback = () =>
@@ -115,15 +121,11 @@ async function loadExpansion(
       });
     const request = fetchExpansion(canonicalExpandUrl(baseUrl, canonical, count), signal)
       .catch((error) => {
-        if (error instanceof Error && error.name === "AbortError") {
-          return snapshotFallback();
-        }
+        if (error instanceof Error && error.name === "AbortError") throw error;
         return fetchExpansion(valueSetExpandUrl(baseUrl, valueSetId, count), signal);
       })
       .catch(async (error) => {
-        if (error instanceof Error && error.name === "AbortError") {
-          return snapshotFallback();
-        }
+        if (!allowBundledFallback) throw error;
         return snapshotFallback().catch(() => {
           throw error;
         });
@@ -179,7 +181,8 @@ async function loadBundledPsgcSnapshot() {
 
 export async function loadPsgcDirectory(
   baseUrl: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  allowBundledFallback = CONNECTATHON_CONFIG.preset === "participant"
 ): Promise<PsgcDirectory> {
   const [regions, provinces, cities] = await Promise.all([
     loadExpansion(
@@ -187,43 +190,56 @@ export async function loadPsgcDirectory(
       PSGC_VALUE_SET_IDS.regions,
       PSGC_VALUE_SETS.regions,
       100,
-      signal
+      signal,
+      allowBundledFallback
     ),
     loadExpansion(
       baseUrl,
       PSGC_VALUE_SET_IDS.provinces,
       PSGC_VALUE_SETS.provinces,
       200,
-      signal
+      signal,
+      allowBundledFallback
     ),
     loadExpansion(
       baseUrl,
       PSGC_VALUE_SET_IDS.cities,
       PSGC_VALUE_SETS.cities,
       2_000,
-      signal
+      signal,
+      allowBundledFallback
     )
   ]);
   return { regions, provinces, cities };
 }
 
-export function loadPsgcBarangays(baseUrl: string, signal?: AbortSignal) {
+export function loadPsgcBarangays(
+  baseUrl: string,
+  signal?: AbortSignal,
+  allowBundledFallback = CONNECTATHON_CONFIG.preset === "participant"
+) {
   return loadExpansion(
     baseUrl,
     PSGC_VALUE_SET_IDS.barangays,
     PSGC_VALUE_SETS.barangays,
     50_000,
-    signal
+    signal,
+    allowBundledFallback
   );
 }
 
-export function loadAllPsgc(baseUrl: string, signal?: AbortSignal) {
+export function loadAllPsgc(
+  baseUrl: string,
+  signal?: AbortSignal,
+  allowBundledFallback = CONNECTATHON_CONFIG.preset === "participant"
+) {
   return loadExpansion(
     baseUrl,
     PSGC_VALUE_SET_IDS.all,
     PSGC_VALUE_SETS.all,
     50_000,
-    signal
+    signal,
+    allowBundledFallback
   );
 }
 

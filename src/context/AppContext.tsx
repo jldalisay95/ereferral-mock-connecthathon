@@ -53,6 +53,7 @@ import {
 import type {
   AppSettings,
   CareStatus,
+  CodingInput,
   FacilityAccount,
   FacilityDefinition,
   FacilityPublishResult,
@@ -695,7 +696,8 @@ export function AppProvider({ children }: PropsWithChildren) {
     referralId: string,
     transition: TaskTransition,
     note: string,
-    forwardingFacilityId?: string
+    forwardingFacilityId?: string,
+    receivingResponseCoding?: CodingInput
   ): Promise<ReferralRecord> {
     if (
       !CONNECTATHON_CONFIG.capabilities.externalWrites &&
@@ -718,6 +720,15 @@ export function AppProvider({ children }: PropsWithChildren) {
     if (transition === "referred-onward" && !forwardingFacilityId) {
       throw new Error("A forwarding facility is required.");
     }
+    if (
+      CONNECTATHON_CONFIG.preset === "ready" &&
+      isReceivingResponseTransition(transition) &&
+      receivingResponseCoding?.code !== transition
+    ) {
+      throw new Error(
+        "Ready mode requires this receiving response code from a live terminology expansion."
+      );
+    }
     const taskId = record.resourceReferences.taskReference?.split("/")[1];
     const storedTask = findResource(record.fhirResources, "Task");
     if (!taskId || !storedTask) {
@@ -732,7 +743,8 @@ export function AppProvider({ children }: PropsWithChildren) {
       const updatedTask = applyTaskTransition(
         sourceTask,
         transition,
-        effectiveNote
+        effectiveNote,
+        receivingResponseCoding
       );
       const savedTask = record.liveSubmission
         ? await updateResource(

@@ -142,9 +142,9 @@ describe("versioned local repository", () => {
     const state = localRepository.load();
     expect(state.referrals[0].draft.patient.contactRelationship).toEqual(
       expect.objectContaining({
-        system: "http://terminology.hl7.org/CodeSystem/v2-0131",
-        code: "N",
-        display: "Next-of-Kin"
+        system: "http://terminology.hl7.org/CodeSystem/v3-RoleCode",
+        code: "SPS",
+        display: "Spouse"
       })
     );
     expect(state.referrals[0].draft.patient.disabilities[0].display).toBe(

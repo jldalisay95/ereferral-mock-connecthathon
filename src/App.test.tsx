@@ -9,6 +9,7 @@ import {
 } from "./config/fhir";
 import { localRepository } from "./services/localRepository";
 import { clearPsgcDirectoryCache } from "./services/psgcDirectory";
+import { CONNECTATHON_CONFIG } from "./config/connectathon.config";
 
 const psgcExpansions: Record<string, Array<{ code: string; display: string }>> = {
   [PSGC_VALUE_SETS.regions]: [
@@ -27,17 +28,28 @@ function psgcResponse(input: RequestInfo | URL): Response | undefined {
   const url = new URL(String(input), "http://localhost");
   const canonical = url.searchParams.get("url");
   const rows = canonical ? psgcExpansions[canonical] : undefined;
-  if (!rows) return undefined;
+  const configuredValueSet = canonical
+    ? CONNECTATHON_CONFIG.terminology.valueSets.find(
+        (item) => item.canonical === canonical
+      )
+    : undefined;
+  if (!rows && !configuredValueSet) return undefined;
+  const expandedRows =
+    rows ?? configuredValueSet?.fallbackOptions.map(({ system, code, display }) => ({
+      system,
+      code,
+      display
+    })) ?? [];
   return {
     ok: true,
     status: 200,
     json: async () => ({
       resourceType: "ValueSet",
       expansion: {
-        contains: rows.map((row) => ({
+        contains: expandedRows.map((row) => ({
           ...row,
-          system: PSGC_SYSTEM,
-          version: PSGC_VERSION
+          system: "system" in row ? row.system : PSGC_SYSTEM,
+          ...(rows ? { version: PSGC_VERSION } : {})
         }))
       }
     })
@@ -149,6 +161,8 @@ describe("application workflow", () => {
     let serverTask: Record<string, unknown> | undefined;
     const transactionUrl = "https://cdr.pheref.fhirlab.net/fhir";
     fetchMock.mockImplementation(async (input, init) => {
+      const terminology = psgcResponse(input);
+      if (terminology) return terminology;
       const url = String(input);
       if (url.includes("$validate")) {
         return {
@@ -227,6 +241,7 @@ describe("application workflow", () => {
     await user.click(screen.getByRole("checkbox", { name: /Patient\/representative consent/i }));
     await user.click(screen.getByRole("button", { name: "Continue to destination" }));
     await user.click(screen.getByRole("button", { name: "Continue to referral details" }));
+    await screen.findByRole("option", { name: "Emergency" });
     await user.click(screen.getByRole("link", { name: "Preview and validate" }));
     await user.click(screen.getByRole("button", { name: "Validate Bundle" }));
     expect(

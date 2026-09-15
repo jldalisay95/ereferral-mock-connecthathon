@@ -18,6 +18,7 @@ export function emptyFacilityRegistration(): FacilityRegistrationInput {
     practitionerGiven: "",
     practitionerFamily: "",
     practitionerLicense: "",
+    practitionerRole: { ...CONNECTATHON_CONFIG.terminology.practitionerRoles[0] },
     username: "",
     password: "",
     passwordConfirmation: ""
@@ -45,6 +46,9 @@ export function getFacilityRegistrationErrors(
   }
   if (!value.address.barangayCode) errors.push("A PSGC barangay is required.");
   if (!value.address.psgcVersion) errors.push("A PSGC version is required.");
+  if (!value.practitionerRole.system || !value.practitionerRole.code) {
+    errors.push("A practitioner role from the configured ValueSet is required.");
+  }
   if (accounts.some((account) => account.username.toLowerCase() === username)) {
     errors.push("Username already exists.");
   }
@@ -80,10 +84,6 @@ export function createFacilityRegistration(
     address: structuredClone(value.address),
     source: "local" as const
   };
-  const doctorRole =
-    CONNECTATHON_CONFIG.terminology.practitionerRoles.find(
-      (role) => role.code === "158965000"
-    ) ?? CONNECTATHON_CONFIG.terminology.practitionerRoles[0];
   const facility: FacilityDefinition = {
     id,
     name: organization.name,
@@ -94,7 +94,7 @@ export function createFacilityRegistration(
       given: value.practitionerGiven.trim() || "Facility",
       family: value.practitionerFamily.trim() || "Practitioner",
       license: value.practitionerLicense.trim() || `SYN-PRC-${nhfrCode}`,
-      role: { ...doctorRole }
+      role: { ...value.practitionerRole }
     }
   };
   const account: FacilityAccount = {

@@ -3,6 +3,8 @@ import { emptyFacilityRegistration } from "../services/facilityRegistration";
 import type { FacilityRegistrationInput } from "../types";
 import { FormField, TextInput } from "./FormField";
 import { PsgcAddressFields } from "./PsgcAddressFields";
+import { CodingSelect } from "./CodingSelect";
+import { useTerminologyValueSet } from "../hooks/useTerminologyValueSet";
 
 interface FacilityRegistrationFormProps {
   terminologyBaseUrl: string;
@@ -20,6 +22,15 @@ export function FacilityRegistrationForm({
   const [registration, setRegistration] = useState(emptyFacilityRegistration);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
+  const practitionerRoles = useTerminologyValueSet("practitioner-role");
+  const liveRoleRequired =
+    practitionerRoles.requiresLiveExpansion &&
+    (practitionerRoles.source !== "server" ||
+      !practitionerRoles.options.some(
+        (option) =>
+          option.system === registration.practitionerRole.system &&
+          option.code === registration.practitionerRole.code
+      ));
 
   const update = <K extends keyof FacilityRegistrationInput>(
     key: K,
@@ -113,6 +124,14 @@ export function FacilityRegistrationForm({
             onChange={(event) => update("practitionerLicense", event.target.value)}
           />
         </FormField>
+        <CodingSelect
+          label="Practitioner role"
+          value={registration.practitionerRole}
+          options={practitionerRoles.options}
+          disabled={liveRoleRequired}
+          onChange={(value) => update("practitionerRole", value)}
+          hint={`ValueSet: ${practitionerRoles.canonical}`}
+        />
         <FormField label="Account username">
           <TextInput
             required
@@ -147,8 +166,14 @@ export function FacilityRegistrationForm({
         This creates a synthetic account in this browser only. Do not use a real
         password, credential, facility secret, or patient information.
       </div>
+      {liveRoleRequired ? (
+        <div className="notice warning" role="alert">
+          Ready mode requires a live Practitioner Role expansion from the
+          terminology server. {practitionerRoles.error ?? "Loading ValueSet..."}
+        </div>
+      ) : null}
       <div className="button-row">
-        <button type="submit" disabled={submitting}>
+        <button type="submit" disabled={submitting || liveRoleRequired}>
           {submitting ? "Creating facility…" : submitLabel}
         </button>
       </div>
