@@ -72,13 +72,15 @@ async function fetchExpansion(url: string, signal?: AbortSignal) {
       }`
     );
   }
-  const version = body?.version ?? PSGC_VERSION;
   return (body?.expansion?.contains ?? []).flatMap((item) =>
     item.code
       ? [
           {
             system: item.system ?? PSGC_SYSTEM,
-            version: item.version ?? version,
+            // ValueSet.version identifies the ValueSet, not necessarily the
+            // CodeSystem used by an expansion entry. Only an entry-level
+            // version can override the configured PSGC CodeSystem version.
+            version: item.version ?? PSGC_VERSION,
             code: item.code,
             display: (item.display ?? item.code).trim()
           }

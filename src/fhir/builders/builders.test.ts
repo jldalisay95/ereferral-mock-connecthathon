@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   IDENTIFIER_SYSTEMS,
   PWD_DISABILITY_OPTIONS,
-  PROFILES,
-  PSGC_SYSTEM,
-  PSGC_VERSION
+  PROFILES
 } from "../../config/fhir";
 import { createDemoDraft } from "../../data/demo";
 import { FACILITIES } from "../../data/facilities";
@@ -100,20 +98,29 @@ describe("PHeRef builders", () => {
     expect(serialized).not.toContain("ph-core-observation");
   });
 
-  it("uses the current Connectathon PSGC canonical", () => {
-    const serialized = JSON.stringify(buildPatient(createDemoDraft()));
-    expect(serialized).toContain(PSGC_SYSTEM);
-    expect(serialized).toContain(PSGC_VERSION);
+  it("uses standard address fields without validator-conflicting PSGC extensions", () => {
+    const patient = buildPatient(createDemoDraft());
+    const address = (patient.address as Array<Record<string, unknown>>)[0];
+    expect(address.extension).toBeUndefined();
+    expect(address.district).toBe("Poblacion");
+    expect(address.city).toBe("Kalibo");
+    expect(address.state).toBe("Aklan");
+    expect(address.text).toContain("Region VI (Western Visayas)");
   });
 
-  it("uses valid current South Cotabato city and barangay PSGC codes", () => {
+  it("preserves South Cotabato city and barangay address text", () => {
     const draft = createDemoDraft(FACILITIES[2], FACILITIES[0], DEMO_PATIENTS[2]);
     const bundle = buildReferralTransactionBundle(draft);
-    const serialized = JSON.stringify(bundle);
-    expect(serialized).toContain("1206306000");
-    expect(serialized).toContain("1206306018");
-    expect(serialized).not.toContain("1206305000");
-    expect(serialized).not.toContain("1206305012");
+    const organization = (
+      bundle.entry as Array<{ resource: Record<string, unknown> }>
+    ).find((entry) => entry.resource.resourceType === "Organization")?.resource;
+    const address = (
+      organization?.address as Array<Record<string, unknown>>
+    )[0];
+    expect(address.district).toBe(draft.initiatingFacility.address.barangay);
+    expect(address.city).toBe(draft.initiatingFacility.address.city);
+    expect(address.state).toBe(draft.initiatingFacility.address.province);
+    expect(address.text).toContain(draft.initiatingFacility.address.region);
   });
 
   it("omits empty address primitives", () => {

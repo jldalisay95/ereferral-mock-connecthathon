@@ -1,8 +1,6 @@
 import {
   IDENTIFIER_SYSTEMS,
-  PROFILES,
-  PSGC_SYSTEM,
-  PSGC_VERSION
+  PROFILES
 } from "../../config/fhir";
 import type { CodingInput, FhirResource, ReferralDraft } from "../../types";
 
@@ -60,29 +58,27 @@ const narrative = (summary: string) => ({
 });
 
 function address(input: ReferralDraft["patient"]["address"]) {
-  const geographicExtensions = [
-    ["region", input.regionCode],
-    ["province", input.provinceCode],
-    ["city-municipality", input.cityCode],
-    ["barangay", input.barangayCode]
-  ].flatMap(([name, code]) =>
-    code
-      ? [
-          {
-            url: `https://fhir.doh.gov.ph/phcore/StructureDefinition/${name}`,
-            valueCoding: {
-              system: PSGC_SYSTEM,
-              version: input.psgcVersion || PSGC_VERSION,
-              code
-            }
-          }
-        ]
-      : []
-  );
+  const text = [
+    input.line,
+    input.barangay,
+    input.city,
+    input.province,
+    input.region,
+    input.postalCode,
+    "PH"
+  ]
+    .filter(Boolean)
+    .join(", ");
+
   return {
-    ...(geographicExtensions.length ? { extension: geographicExtensions } : {}),
+    // The current validation environment resolves the optional PH Core PSGC
+    // bindings against a partial 2Q-2026 CodeSystem even when a Coding is
+    // explicitly versioned as 1Q-2026. Keep the complete address in standard
+    // FHIR fields until that server-side terminology conflict is corrected.
     use: "home",
+    ...(text ? { text } : {}),
     ...(input.line ? { line: [input.line] } : {}),
+    ...(input.barangay ? { district: input.barangay } : {}),
     ...(input.city ? { city: input.city } : {}),
     ...(input.province ? { state: input.province } : {}),
     ...(input.postalCode ? { postalCode: input.postalCode } : {}),

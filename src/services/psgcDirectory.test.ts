@@ -105,6 +105,31 @@ describe("PSGC directory", () => {
     );
   });
 
+  it("does not use the ValueSet version as the PSGC CodeSystem version", async () => {
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const valueSetId = valueSetIdFromRequest(input) ?? "";
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          resourceType: "ValueSet",
+          version: "2Q-2026",
+          expansion: {
+            contains: (expansions[valueSetId] ?? []).map((item) => ({
+              system: PSGC_SYSTEM,
+              ...item
+            }))
+          }
+        })
+      } as Response;
+    });
+
+    const directory = await loadPsgcDirectory("https://tx.example.test/fhir");
+
+    expect(directory.regions[0].version).toBe(PSGC_VERSION);
+    expect(directory.regions[0].version).not.toBe("2Q-2026");
+  });
+
   it("loads the full PSGC value set through canonical URL expansion", async () => {
     const allPsgc = await loadAllPsgc("https://tx.example.test/fhir");
     expect(allPsgc.map((option) => option.code)).toContain("1206306018");
